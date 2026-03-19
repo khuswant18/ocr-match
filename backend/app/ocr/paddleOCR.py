@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify
 import time
 from paddleocr import PaddleOCR
-from app.parsers.paddleParser import parse_text
+from app.parsers.llm_parser import parse_with_ollama
 from app.utils.operations import add_invoice_to_db, check_if_invoice, process_paddleocr_text
 from app.utils.utils import load_image, get_files_from_request
 
@@ -27,7 +27,8 @@ def process_paddleocr():
     average_confidence, text = process_paddleocr_text(result)
 
     start_time_parsing = time.time()
-    parsed_data = parse_text(text)
+    # Use LLM local ollama integration parser
+    parsed_data = parse_with_ollama(text)
     parsing_time = time.time() - start_time_parsing
 
     response = {
