@@ -4,12 +4,12 @@ import { useStyles } from "./styles";
 
 function DataTable(props) {
   const classes = useStyles();
-  const { data, ico } = props;
-  const [localData, setLocalData] = useState(data);
+  const { data, gstin } = props;
+  const [localData, setLocalData] = useState(data || {});
 
   useEffect(() => {
-    setLocalData({ ...data, ICO: ico !== undefined ? ico : data.ICO });
-  }, [data, ico]);
+    setLocalData({ ...data, GSTIN: gstin !== undefined ? gstin : (data ? data.GSTIN : "") });
+  }, [data, gstin]);
 
   const handleChange = (event, field) => {
     const newData = { ...localData, [field]: event.target.value };
@@ -33,11 +33,11 @@ function DataTable(props) {
   return (
     <Paper elevation={3} sx={{ p: 2, borderRadius: 5 }}>
       {renderTextField("Name", "Name")}
-      {renderTextField("Street", "Address")}
+      {renderTextField("Address", "Address")}
       {renderTextField("City", "City")}
-      {renderTextField("PSC", "PSC")}
-      {renderTextField("ICO", "IČO")}
-      {renderTextField("DIC", "DIČ")}
+      {renderTextField("State", "State")}
+      {renderTextField("Pincode", "Pincode")}
+      {renderTextField("GSTIN", "GSTIN")}
     </Paper>
   );
 }

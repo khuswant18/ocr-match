@@ -21,7 +21,7 @@ const SummaryCard = (props) => {
   const [showText, setShowText] = useState(true);
   const [chartOpen, setChartOpen] = useState(false);
   const [isInvoice, setIsInvoice] = useState(false);
-  const [dataChanged, setDataChanged] = useState(false);
+  const [dataChanged, setDataChanged] = useState(false); 
   const [initialData, setInitialData] = useState({});
   const [base64Image, setBase64Image] = useState("");
   const [newData, setNewData] = useState({});
@@ -247,8 +247,8 @@ const SummaryCard = (props) => {
                       fontSize="large"
                       sx={{ color: COLORS.PRIMARY_HOVER }}
                     />
-                  </IconButton>
-                )}
+                  </IconButton>   
+                )}              
                 <IconButton
                   sx={{ padding: { xs: "3px", sm: "10px" } }}
                   onClick={handleDownloadFile}

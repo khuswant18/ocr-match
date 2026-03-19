@@ -12,29 +12,28 @@ def parse_with_ollama(ocr_text: str) -> dict:
     """
     Sends the noisy OCR text to a local Ollama model to extract structured JSON.
     """
-    prompt = f"""You are an AI system specialized in extracting structured data from OCR text of invoices.
+    prompt = f"""You are an AI system specialized in extracting structured data from OCR text of Indian invoices.
 
-The input is noisy OCR output from Slovak/English invoices. The text may contain spelling mistakes, broken formatting, mixed languages, incorrect alignment, and irrelevant text.
+The input is noisy OCR output from English invoices. The text may contain spelling mistakes, broken formatting, incorrect alignment, and irrelevant text.
 
 EXTRACTION RULES:
 1. Fix OCR errors automatically (e.g. "DELVERY" -> "DELIVERY").
-2. Understand Slovak keywords: "č. faktúry" -> invoice_number, "dátum vystavenia" -> issue_date, "dátum splatnosti" -> due_date, "spolu / celkom" -> total, "IČO" -> ico, "DIČ / IČ DPH" -> dic.
+2. Understand Indian keywords: "inv","inv no.", Invoice No", "invoice number" -> invoice_number, "Invoice Date", "Date" -> invoice_date, "PO number", "p.o no","po no","PO","po" -> invoice_date,"Due Date" -> due_date, "Total", "Grand Total" -> total_amount, "GSTIN" -> gstin.
 3. Extract items carefully: group quantity, unit price, total correctly.
-4. Normalize numbers: "1 660,00" -> 1660.00 (remove spaces, use dot for decimals).
+4. Normalize numbers: "1,660.00" -> 1660.00 (remove commas, use dot for decimals).
 5. Ignore signatures and legal text.
 6. If uncertain, return null.
 
 OUTPUT FORMAT (STRICT JSON ONLY): 
 {{
   "invoice_number": "",
-  "issue_date": "",
-  "due_date": "",
-  "supplier": {{ "name": "", "address": "", "ico": "", "dic": "", "ic_dph": "" }},
-  "buyer": {{ "name": "", "address": "", "ico": "", "dic": "", "ic_dph": "" }},
+  "invoice_date": "",
+  "supplier": {{ "name": "", "address": "", "gstin": "" }},
+  "buyer": {{ "name": "", "address": "", "gstin": "" }},
   "payment_method": "",
-  "bank_details": {{ "iban": "", "swift": "", "bank_name": "" }},
+  "bank_details": {{ "account_number": "", "ifsc": "", "bank_name": "" }},
   "items": [ {{ "description": "", "quantity": 0, "unit_price": 0, "total_price": 0 }} ],
-  "financials": {{ "subtotal": 0, "vat": 0, "total": 0 }}
+  "financials": {{ "subtotal": 0, "cgst": 0, "sgst": 0, "igst": 0, "total_amount": 0 }}
 }}
 
 OCR TEXT:

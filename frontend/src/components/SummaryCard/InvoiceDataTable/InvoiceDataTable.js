@@ -17,35 +17,41 @@ const InvoiceTable = (props) => {
     props.onDataChange(newData);
   };
 
-  const renderTextField = (field, label, index) => (
-    <Grid item xs={6} key={index}>
-      <TextField
-        label={label}
-        value={localData[field] || ""}
-        onChange={(event) => handleChange(event, field)}
-        variant="standard"
-        className={classes.focused}
-        fullWidth
-        inputProps={{ style: { fontWeight: "bold" } }}
-      />
-    </Grid>
-  );
+  const renderTextField = (field, label, index) => {
+    // Determine the value to display; some fields may prepend/append symbols
+    let displayValue = localData[field] || "";
+    if (field === "total_amount" && displayValue) {
+      displayValue = `₹ ${displayValue}`;
+    }
+
+    return (
+      <Grid item xs={6} key={index}>
+        <TextField
+          label={label}
+          value={field === "total_amount" && localData[field] ? localData[field] : (localData[field] || "")}
+          onChange={(event) => handleChange(event, field)}
+          variant="standard"
+          className={classes.focused}
+          fullWidth
+          inputProps={{ style: { fontWeight: "bold" } }}
+        />
+      </Grid>
+    );
+  };
 
   const fields = [
     { field: "invoice_number", label: "Invoice number" },
+    { field: "po_number", label: "PO Number" },
+    { field: "invoice_date", label: "Invoice Date" },
+    { field: "due_date", label: "Due Date" },
     { field: "bank", label: "Bank" },
-    { field: "var_symbol", label: "Variable symbol" },
-    { field: "iban", label: "IBAN" },
-    { field: "date_of_issue", label: "Date of issue" },
-    { field: "swift", label: "SWIFT" },
-    { field: "due_date", label: "Due date" },
+    { field: "ifsc", label: "IFSC" },
+    { field: "account_number", label: "Account Number" },
     { field: "payment_method", label: "Payment method" },
-    { field: "delivery_date", label: "Delivery date" },
-    {
-      field: "total_price",
-      label: "Total amount",
-      value: localData && localData["total_price"] ? localData["total_price"] + " €" : "",
-    },
+    { field: "cgst", label: "CGST" },
+    { field: "sgst", label: "SGST" },
+    { field: "igst", label: "IGST" },
+    { field: "total_amount", label: "Total amount" },
   ];
 
   return (

@@ -50,29 +50,29 @@ const InvoiceTable = ({ invoiceData, openSummary, refreshInvoiceData }) => {
       supplier: invoice.supplier_data.Name,
       buyer: invoice.buyer_data.Name,
       due_date: invoice.due_date,
-      amount: invoice.total_price,
+      amount: invoice.total_amount,
     });
 
     dataToSearch.push({
       id: invoice.id,
       inv_number: invoice.invoice_number,
       due_date: invoice.due_date,
-      amount: invoice.total_price,
+      amount: invoice.total_amount,
       bank: invoice.bank,
-      iban: invoice.iban,
-      var_symbol: invoice.var_symbol,
+      ifsc: invoice.ifsc,
+      account_number: invoice.account_number,
       supplier: invoice.supplier_data.Name,
       buyer: invoice.buyer_data.Name,
-      supplier_ico: invoice.supplier_data.ICO,
+      supplier_gstin: invoice.supplier_data.GSTIN,
       supplier_city: invoice.supplier_data.City,
-      supplier_dic: invoice.supplier_data.DIC,
-      supplier_PSC: invoice.supplier_data.PSC,
-      supplier_street: invoice.supplier_data.Street,
-      buyer_ico: invoice.buyer_data.ICO,
+      supplier_state: invoice.supplier_data.State,
+      supplier_pincode: invoice.supplier_data.Pincode,
+      supplier_address: invoice.supplier_data.Address,
+      buyer_gstin: invoice.buyer_data.GSTIN,
       buyer_city: invoice.buyer_data.City,
-      buyer_dic: invoice.buyer_data.DIC,
-      buyer_PSC: invoice.buyer_data.PSC,
-      buyer_street: invoice.buyer_data.Street,
+      buyer_state: invoice.buyer_data.State,
+      buyer_pincode: invoice.buyer_data.Pincode,
+      buyer_address: invoice.buyer_data.Address,
     });
   });
 
@@ -272,7 +272,7 @@ const InvoiceTable = ({ invoiceData, openSummary, refreshInvoiceData }) => {
           <DialogContentText
             id="alert-dialog-description"
           >
-            Are you sure you want to delete this invoice?
+            Are you sure you want to delete this invoice
           </DialogContentText>
         </DialogContent>
         <DialogActions>

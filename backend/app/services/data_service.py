@@ -1,31 +1,31 @@
 from app.models import db, Invoice, User
 import base64
 
-
 def create_entity_data(entity):
     return {
-        'ICO': entity.ico,
+        'GSTIN': entity.gstin,
         'Name': entity.name,
-        'Street': entity.address,
-        'PSC': entity.psc,
+        'Address': entity.address,
         'City': entity.city,
-        'DIC': entity.dic,
+        'State': entity.state,
+        'Pincode': entity.pincode,
     } if entity else {}
-
 
 def serializable_invoices(invoices):
     return [{
         'id': invoice.id,
         'invoice_number': invoice.invoice_number,
-        'var_symbol': invoice.var_symbol,
-        'date_of_issue': invoice.date_of_issue,
+        'po_number': invoice.po_number,
+        'invoice_date': invoice.invoice_date,
         'due_date': invoice.due_date,
-        'delivery_date': invoice.delivery_date,
         'payment_method': invoice.payment_method,
-        'total_price': invoice.total_price,
+        'total_amount': invoice.total_amount,
+        'cgst': invoice.cgst,
+        'sgst': invoice.sgst,
+        'igst': invoice.igst,
         'bank': invoice.bank,
-        'swift': invoice.swift,
-        'iban': invoice.iban,
+        'ifsc': invoice.ifsc,
+        'account_number': invoice.account_number,
         'supplier_data': create_entity_data(invoice.supplier),
         'buyer_data': create_entity_data(invoice.buyer),
         'text': invoice.text,
@@ -33,11 +33,9 @@ def serializable_invoices(invoices):
         'image_file': base64.b64encode(invoice.image_file).decode() if invoice.image_file else None,
     } for invoice in invoices]
 
-
 def get_invoices(user_id):
     invoices = Invoice.query.filter_by(user_id=user_id).all()
     return serializable_invoices(invoices)
-
 
 def get_organizations(user_id):
     user = User.query.get(user_id)
@@ -47,16 +45,13 @@ def get_organizations(user_id):
                                 user.active_organization_id), None)
     return organization_data, active_organization
 
-
 def get_users():
     users = User.query.all()
     return [{'id': user.id, 'name': user.name, 'email': user.email, 'role': user.role.value} for user in users]
 
-
 def get_organization_invoices(organization_id):
     invoices = Invoice.query.filter_by(organization_id=organization_id).all()
     return serializable_invoices(invoices)
-
 
 def save_time_other(invoice_id, time_other):
     invoice = Invoice.query.get(invoice_id)
@@ -66,7 +61,6 @@ def save_time_other(invoice_id, time_other):
         db.session.commit()
         return True
     return False
-
 
 def get_performance_data(invoice_id):
     invoice = Invoice.query.get(invoice_id)

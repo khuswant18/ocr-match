@@ -32,7 +32,7 @@ const HomePage = () => {
         window.location.href = "/login";
       }
     })();
-  }, [userCtx, enqueueSnackbar]);
+  }, [userCtx, enqueueSnackbar]); 
 
   useEffect(() => {
     setActivePage(ocrCtx.activePage);
@@ -48,7 +48,7 @@ const HomePage = () => {
           {activePage === 2 && <OCRCard />}
           {activePage === 3 && <SummaryCard />}
           <canvas className={classes.invoice} id="output" />
-        </div>
+        </div> 
       </AppLayout>
     </>
   );

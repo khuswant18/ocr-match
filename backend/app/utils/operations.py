@@ -1,7 +1,6 @@
 from flask import session
 from app.models import db, Invoice, User, Performance, Supplier, Buyer
 
-
 def compute_confidence(data):
     total_confidence = 0
     num_confident_words = 0
@@ -32,7 +31,7 @@ def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence,
     user_id = session.get("user_id")
 
     user = User.query.get(user_id)
-    active_org_id = user.active_organization_id
+    active_org_id = user.active_organization_id if user else None
 
     performance = Performance(
         average_confidence=average_confidence,
@@ -45,41 +44,42 @@ def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence,
     db.session.add(performance)
     db.session.flush()
 
+    supplier_data = parsed_data.get('supplier', {})
     supplier = Supplier(
-        ico=parsed_data['supplier_data']['ICO'] if parsed_data.get('supplier_data') else None,
-        name=parsed_data['supplier_data']['Name'] if parsed_data.get('supplier_data') else "",
-        address=parsed_data['supplier_data']['Street'] if parsed_data.get('supplier_data') else "",
-        psc=parsed_data['supplier_data']['PSC'] if parsed_data.get('supplier_data') else "",
-        city=parsed_data['supplier_data']['City'] if parsed_data.get('supplier_data') else "",
-        dic=parsed_data['supplier_data']['DIC'] if parsed_data.get('supplier_data') else ""
+        gstin=supplier_data.get('gstin'),
+        name=supplier_data.get('name', ''),
+        address=supplier_data.get('address', '')
     )
     db.session.add(supplier)
     db.session.flush()
 
+    buyer_data = parsed_data.get('buyer', {})
     buyer = Buyer(
-        ico=parsed_data['buyer_data']['ICO'] if parsed_data.get('buyer_data') else None,
-        name=parsed_data['buyer_data']['Name'] if parsed_data.get('buyer_data') else "",
-        address=parsed_data['buyer_data']['Street'] if parsed_data.get('buyer_data') else "",
-        psc=parsed_data['buyer_data']['PSC'] if parsed_data.get('buyer_data') else "",
-        city=parsed_data['buyer_data']['City'] if parsed_data.get('buyer_data') else "",
-        dic=parsed_data['buyer_data']['DIC'] if parsed_data.get('buyer_data') else ""
+        gstin=buyer_data.get('gstin'),
+        name=buyer_data.get('name', ''),
+        address=buyer_data.get('address', '')
     )
     db.session.add(buyer)
     db.session.flush()
 
+    bank_details = parsed_data.get('bank_details', {})
+    financials = parsed_data.get('financials', {})
+
     invoice = Invoice(
         user_id=user_id,
         organization_id=active_org_id if active_org_id else None,
-        invoice_number=parsed_data['invoice_number'],
-        var_symbol=parsed_data['var_symbol'],
-        date_of_issue=parsed_data['date_of_issue'],
-        due_date=parsed_data['due_date'],
-        delivery_date=parsed_data['delivery_date'],
-        payment_method=parsed_data['payment_method'],
-        total_price=parsed_data['total_price'],
-        bank=parsed_data['bank'],
-        swift=parsed_data['swift'],
-        iban=parsed_data['iban'],
+        invoice_number=parsed_data.get('invoice_number', ''),
+        po_number=parsed_data.get('po_number', ''),
+        invoice_date=parsed_data.get('invoice_date', ''),
+        due_date=parsed_data.get('due_date', ''),
+        payment_method=parsed_data.get('payment_method', ''),
+        total_amount=str(financials.get('total_amount', '')),
+        cgst=str(financials.get('cgst', '')),
+        sgst=str(financials.get('sgst', '')),
+        igst=str(financials.get('igst', '')),
+        bank=bank_details.get('bank_name', ''),
+        ifsc=bank_details.get('ifsc', ''),
+        account_number=bank_details.get('account_number', ''),
         supplier_id=supplier.id if supplier else None,
         buyer_id=buyer.id if buyer else None,
         text=text,
@@ -99,6 +99,18 @@ def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence,
 
 
 def check_if_invoice(parsed_data):
-    required_fields = ['invoice_number', 'var_symbol', 'total_price',
-                       'due_date', 'iban', 'buyer_ico', 'supplier_ico', "bank"]
-    return any(parsed_data.get(field) for field in required_fields)
+    # Determine if it's an invoice if certain required fields are present
+    required_fields = ['invoice_number', 'invoice_date']
+    for field in required_fields:
+        if parsed_data.get(field):
+            return True
+            
+    supplier = parsed_data.get('supplier', {})
+    if supplier.get('gstin') or supplier.get('name'):
+        return True
+    
+    financials = parsed_data.get('financials', {})
+    if financials.get('total_amount'):
+        return True
+
+    return False

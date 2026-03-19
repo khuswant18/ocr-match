@@ -62,15 +62,17 @@ class Invoice(db.Model):
     organization_id = db.Column(db.String(32), db.ForeignKey(
         'organizations.id'))
     invoice_number = db.Column(db.String(100))
-    var_symbol = db.Column(db.String(100))
-    date_of_issue = db.Column(db.String(100))
+    po_number = db.Column(db.String(100))
+    invoice_date = db.Column(db.String(100))
     due_date = db.Column(db.String(100))
-    delivery_date = db.Column(db.String(100))
     payment_method = db.Column(db.String(100))
-    total_price = db.Column(db.String(100))
+    total_amount = db.Column(db.String(100))
+    cgst = db.Column(db.String(100))
+    sgst = db.Column(db.String(100))
+    igst = db.Column(db.String(100))
     bank = db.Column(db.String(100))
-    swift = db.Column(db.String(100))
-    iban = db.Column(db.String(100))
+    ifsc = db.Column(db.String(100))
+    account_number = db.Column(db.String(100))
     supplier_id = db.Column(
         db.Integer, db.ForeignKey('suppliers.id'), unique=True)
     buyer_id = db.Column(db.Integer, db.ForeignKey('buyers.id'), unique=True)
@@ -83,24 +85,24 @@ class Invoice(db.Model):
 class Supplier(db.Model):
     __tablename__ = "suppliers"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    ico = db.Column(db.String(100))
-    name = db.Column(db.String(100))
-    address = db.Column(db.String(100))
-    psc = db.Column(db.String(100))
+    gstin = db.Column(db.String(100))
+    name = db.Column(db.String(255))
+    address = db.Column(db.String(500))
     city = db.Column(db.String(100))
-    dic = db.Column(db.String(100))
+    state = db.Column(db.String(100))
+    pincode = db.Column(db.String(100))
     invoices = db.relationship("Invoice", backref="supplier")
 
 
 class Buyer(db.Model):
     __tablename__ = "buyers"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    ico = db.Column(db.String(100))
-    name = db.Column(db.String(100))
-    psc = db.Column(db.String(100))
-    address = db.Column(db.String(100))
+    gstin = db.Column(db.String(100))
+    name = db.Column(db.String(255))
+    address = db.Column(db.String(500))
     city = db.Column(db.String(100))
-    dic = db.Column(db.String(100))
+    state = db.Column(db.String(100))
+    pincode = db.Column(db.String(100))
     invoices = db.relationship("Invoice", backref="buyer")
 
 
