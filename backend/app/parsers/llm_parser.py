@@ -24,7 +24,7 @@ EXTRACTION RULES:
 5. Ignore signatures and legal text.
 6. If uncertain, return null.
 
-OUTPUT FORMAT (STRICT JSON ONLY):
+OUTPUT FORMAT (STRICT JSON ONLY): 
 {{
   "invoice_number": "",
   "issue_date": "",
