@@ -79,28 +79,28 @@ def get_account_number(lines):
                 return match.group()
     return account_number
 
-def get_gstin(lines, type='supplier'):
-    gstin = ''
+def get_tin(lines, type='supplier'):
+    tin = ''
     pattern = re.compile(r"\b\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}\b")
-    found_gstins = []
+    found_tins = []
     
     for line in lines:
         matches = pattern.findall(line.upper())
         for match in matches:
-            found_gstins.append(match)
+            found_tins.append(match)
             
-    if found_gstins:
+    if found_tins:
         if type == 'supplier':
-            return found_gstins[0]
-        elif type == 'buyer' and len(found_gstins) > 1:
-            return found_gstins[1]
-    return gstin
+            return found_tins[0]
+        elif type == 'buyer' and len(found_tins) > 1:
+            return found_tins[1]
+    return tin
 
 def parse_text(text):
     lines = text.split('\n')
 
-    supplier_gstin = get_gstin(lines, 'supplier')
-    buyer_gstin = get_gstin(lines, 'buyer')
+    supplier_tin = get_tin(lines, 'supplier')
+    buyer_tin = get_tin(lines, 'buyer')
 
     data = {
         'invoice_number': get_invoice_number(lines),
@@ -110,7 +110,7 @@ def parse_text(text):
         'bank': get_bank(lines),
         'ifsc': get_ifsc(lines),
         'account_number': get_account_number(lines),
-        'buyer_gstin': buyer_gstin,
-        'supplier_gstin': supplier_gstin,
+        'buyer_tin': buyer_tin,
+        'supplier_tin': supplier_tin,
     }
     return data

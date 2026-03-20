@@ -4,12 +4,12 @@ import { useStyles } from "./styles";
 
 function DataTable(props) {
   const classes = useStyles();
-  const { data, gstin } = props;
+  const { data, tin } = props;
   const [localData, setLocalData] = useState(data || {});
 
   useEffect(() => {
-    setLocalData({ ...data, GSTIN: gstin !== undefined ? gstin : (data ? data.GSTIN : "") });
-  }, [data, gstin]);
+    setLocalData({ ...data, TIN: tin !== undefined ? tin : (data ? data.TIN : "") });
+  }, [data, tin]);
 
   const handleChange = (event, field) => {
     const newData = { ...localData, [field]: event.target.value };
@@ -17,11 +17,11 @@ function DataTable(props) {
     props.onDataChange(newData);
   };
 
-  const renderTextField = (field, label) => (
+  const renderTextField = (field, label, mappedField) => (
     <TextField
       label={label}
-      value={localData[field] || ""}
-      onChange={(event) => handleChange(event, field)}
+      value={localData[mappedField] || localData[field] || ""}
+      onChange={(event) => handleChange(event, mappedField || field)}
       sx={{ mb: 1 }}
       variant="standard"
       className={classes.focused}
@@ -32,12 +32,12 @@ function DataTable(props) {
 
   return (
     <Paper elevation={3} sx={{ p: 2, borderRadius: 5 }}>
-      {renderTextField("Name", "Name")}
-      {renderTextField("Address", "Address")}
-      {renderTextField("City", "City")}
-      {renderTextField("State", "State")}
-      {renderTextField("Pincode", "Pincode")}
-      {renderTextField("GSTIN", "GSTIN")}
+      {renderTextField("Name", "Name", "name")}
+      {renderTextField("Address", "Address", "address")}
+      {renderTextField("City", "City", "city")}
+      {renderTextField("State", "State", "state")}
+      {renderTextField("Pincode", "Pincode", "pincode")}
+      {renderTextField("TIN", "Tin", "tin")}
     </Paper>
   );
 }

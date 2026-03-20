@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify
 import time
 import pytesseract
-from app.parsers.llm_parser import parse_with_ollama
+from app.parsers.llm_parser import parse_with_gemini
 from app.utils.operations import add_invoice_to_db, check_if_invoice, compute_confidence
 from app.utils.utils import load_image, get_files_from_request
 from app.config import INVOICE_LANG
@@ -22,8 +22,8 @@ def process_tesseract():
     average_confidence = compute_confidence(data)
 
     start_time_parsing = time.time()
-    # Use LLM local ollama integration parser
-    parsed_data = parse_with_ollama(text)
+    # Use LLM local integration parser
+    parsed_data = parse_with_gemini(text)
     parsing_time = time.time() - start_time_parsing
 
     response = {

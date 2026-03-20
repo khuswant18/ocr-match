@@ -3,7 +3,7 @@ import base64
 
 def create_entity_data(entity):
     return {
-        'GSTIN': entity.gstin,
+        'TIN': entity.tin,
         'Name': entity.name,
         'Address': entity.address,
         'City': entity.city,
@@ -37,21 +37,9 @@ def get_invoices(user_id):
     invoices = Invoice.query.filter_by(user_id=user_id).all()
     return serializable_invoices(invoices)
 
-def get_organizations(user_id):
-    user = User.query.get(user_id)
-    organization_data = [{'id': org.id, 'name': org.name, 'description': org.description,
-                          'invite_code': org.invite_code} for org in user.organizations]
-    active_organization = next((org for org in organization_data if org['id'] ==
-                                user.active_organization_id), None)
-    return organization_data, active_organization
-
 def get_users():
     users = User.query.all()
     return [{'id': user.id, 'name': user.name, 'email': user.email, 'role': user.role.value} for user in users]
-
-def get_organization_invoices(organization_id):
-    invoices = Invoice.query.filter_by(organization_id=organization_id).all()
-    return serializable_invoices(invoices)
 
 def save_time_other(invoice_id, time_other):
     invoice = Invoice.query.get(invoice_id)

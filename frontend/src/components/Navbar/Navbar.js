@@ -20,8 +20,6 @@ const Navbar = (props) => {
         return `Welcome Back ${props.userName}!`;
       case "/history":
         return "Your scans";
-      case "/organization":
-        return "Organizations";
       case "/users":
         return "Manage users";
       default:

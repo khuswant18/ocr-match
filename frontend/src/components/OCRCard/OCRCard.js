@@ -60,15 +60,16 @@ const OCRCard = () => {
   };
 
   const checkIfInvoice = (data) => {
+    // Check if the parsed_data exists at all, followed by key values mapped from Gemini (like invoice_number, etc)
+    const pData = data?.parsed_data || {};
     if (
-      data["parsed_data"]["invoice_number"] === "" &&
-      data["parsed_data"]["var_symbol"] === "" &&
-      data["parsed_data"]["total_price"] === "" &&
-      data["parsed_data"]["due_date"] === "" &&
-      data["parsed_data"]["iban"] === "" &&
-      data["parsed_data"]["buyer_ico"] === "" &&
-      data["parsed_data"]["supplier_ico"] === "" &&
-      data["parsed_data"]["bank"] === ""
+      !pData.invoice_number &&
+      !pData.invoice_date &&
+      !pData.total_amount &&
+      !pData.due_date &&
+      !pData?.financials?.total_amount &&
+      !pData?.supplier?.name &&
+      !pData?.buyer?.name
     ) {
       ocrCtx.setIsInvoice(false);
       return false;

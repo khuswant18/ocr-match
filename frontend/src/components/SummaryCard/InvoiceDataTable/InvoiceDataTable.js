@@ -11,15 +11,38 @@ const InvoiceTable = (props) => {
     setLocalData(invoiceData);
   }, [invoiceData]);
 
-  const handleChange = (event, field) => {
-    const newData = { ...localData, [field]: event.target.value };
+  const handleChange = (e, field) => {
+    let newData = { ...localData };
+    if (field === "cgst" || field === "sgst" || field === "igst" || field === "subtotal" || field === "total_amount") {
+       if (!newData.financials) newData.financials = {};
+       newData.financials[field] = e.target.value;
+    } else if (field === "bank" || field === "ifsc" || field === "account_number") {
+       const bankFieldMap = {"bank": "bank_name", "ifsc": "ifsc", "account_number": "account_number"};
+       if (!newData.bank_details) newData.bank_details = {};
+       newData.bank_details[bankFieldMap[field]] = e.target.value;
+    } else {
+       newData[field] = e.target.value;
+    }
     setLocalData(newData);
     props.onDataChange(newData);
   };
 
   const renderTextField = (field, label, index) => {
-    // Determine the value to display; some fields may prepend/append symbols
-    let displayValue = localData[field] || "";
+    // Check nested structures primarily from Gemini (like financial dict or bank details)
+    let rawValue = localData[field];
+    
+    if (field === "cgst" || field === "sgst" || field === "igst" || field === "subtotal" || field === "total_amount") {
+      if (localData.financials && localData.financials[field] !== undefined) {
+         rawValue = localData.financials[field];
+      }
+    } else if (field === "bank" || field === "ifsc" || field === "account_number") {
+      const bankFieldMap = {"bank": "bank_name", "ifsc": "ifsc", "account_number": "account_number"};
+      if (localData.bank_details && localData.bank_details[bankFieldMap[field]] !== undefined) {
+         rawValue = localData.bank_details[bankFieldMap[field]];
+      }
+    }
+
+    let displayValue = rawValue || "";
     if (field === "total_amount" && displayValue) {
       displayValue = `₹ ${displayValue}`;
     }
@@ -28,7 +51,7 @@ const InvoiceTable = (props) => {
       <Grid item xs={6} key={index}>
         <TextField
           label={label}
-          value={field === "total_amount" && localData[field] ? localData[field] : (localData[field] || "")}
+          value={displayValue}
           onChange={(event) => handleChange(event, field)}
           variant="standard"
           className={classes.focused}
@@ -48,6 +71,7 @@ const InvoiceTable = (props) => {
     { field: "ifsc", label: "IFSC" },
     { field: "account_number", label: "Account Number" },
     { field: "payment_method", label: "Payment method" },
+    { field: "subtotal", label: "Subtotal" },
     { field: "cgst", label: "CGST" },
     { field: "sgst", label: "SGST" },
     { field: "igst", label: "IGST" },

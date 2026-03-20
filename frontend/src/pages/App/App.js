@@ -5,7 +5,6 @@ import LoginPage from "../LoginPage/LoginPage";
 import RegisterPage from "../RegisterPage/RegisterPage";
 import HistoryPage from "../HistoryPage/HistoryPage";
 import HomePage from "../HomePage/HomePage";
-import OrganizationPage from "../OrganizationPage/OrganizationPage";
 import UsersPage from "../UsersPage/UsersPage";
 import { useStyles } from "./styles";
 import useAuth from "../../hooks/useAuth";
@@ -29,10 +28,6 @@ const App = () => {
         <Route
           path="/history"
           element={authContext.isAuthenticated() ? <HistoryPage /> : <LoginPage />}
-        />
-        <Route
-          path="/organization"
-          element={authContext.isAuthenticated() ? <OrganizationPage /> : <LoginPage />}
         />
         <Route
           path="/users"

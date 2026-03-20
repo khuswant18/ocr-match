@@ -23,13 +23,13 @@ def get_invoice_date(words):
     for i, word in enumerate(words):
         if any(kw in word.lower() for kw in ('date', 'dt.', 'invoice date', 'dated')):
             word_parts = word.split()
-            for part in word_parts:
+            for part in word_parts:     
                 match = date_pattern.search(part)
                 if match:
                     return match.group(0)
-            
+              
             if i + 1 < len(words):
-                next_word = words[i + 1]
+                next_word = words[i + 1] 
                 match = date_pattern.search(next_word)
                 if match:
                     return match.group(0)
@@ -117,29 +117,29 @@ def get_account_number(words):
                     return match.group()
     return account_number
 
-def get_gstin(words, type='supplier'):
-    gstin = ''
+def get_tin(words, type='supplier'):
+    tin = ''
     pattern = re.compile(r"\b\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}\b")
-    found_gstins = []
+    found_tins = []
     
     for i, word in enumerate(words):
         match = pattern.search(word.upper())
         if match:
-            found_gstins.append(match.group())
+            found_tins.append(match.group())
             
-    if found_gstins:
-        # Simplistic assumption: first GSTIN is usually supplier, second is buyer
+    if found_tins:
+        # Simplistic assumption: first TIN is usually supplier, second is buyer
         if type == 'supplier':
-            return found_gstins[0]
-        elif type == 'buyer' and len(found_gstins) > 1:
-            return found_gstins[1]
-    return gstin
+            return found_tins[0]
+        elif type == 'buyer' and len(found_tins) > 1:
+            return found_tins[1]
+    return tin
 
 def parse_text(text):
     words = text.split('\n')
     
-    supplier_gstin = get_gstin(words, 'supplier')
-    buyer_gstin = get_gstin(words, 'buyer')
+    supplier_tin = get_tin(words, 'supplier')
+    buyer_tin = get_tin(words, 'buyer')
 
     data = {
         'invoice_number': get_invoice_number(words),
@@ -149,7 +149,7 @@ def parse_text(text):
         'bank': get_bank(words),
         'ifsc': get_ifsc(words),
         'account_number': get_account_number(words),
-        'buyer_gstin': buyer_gstin,
-        'supplier_gstin': supplier_gstin,
+        'buyer_tin': buyer_tin,
+        'supplier_tin': supplier_tin,
     }
     return data

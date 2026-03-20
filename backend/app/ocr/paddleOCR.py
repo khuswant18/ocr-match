@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify
 import time
 from paddleocr import PaddleOCR
-from app.parsers.llm_parser import parse_with_ollama
+from app.parsers.llm_parser import parse_with_gemini
 from app.utils.operations import add_invoice_to_db, check_if_invoice, process_paddleocr_text
 from app.utils.utils import load_image, get_files_from_request
 
@@ -26,9 +26,27 @@ def process_paddleocr():
 
     average_confidence, text = process_paddleocr_text(result)
 
+    print("\n" + "="*50, flush=True)
+    print("[LOG] TEXT EXTRACTED BY PADDLE OCR (BEFORE GEMINI):", flush=True)
+    print("="*50, flush=True)
+    print(text, flush=True)
+    print("="*50 + "\n", flush=True)
+
     start_time_parsing = time.time()
-    # Use LLM local ollama integration parser
-    parsed_data = parse_with_ollama(text)
+    # Use LLM integration parser
+    print("[LOG] SENDING TEXT TO GEMINI FOR EXTRACTION...", flush=True)
+    parsed_data = parse_with_gemini(text)
+    
+    import json
+    print("\n" + "="*50, flush=True)
+    print("[LOG] PARSED DATA RETURNED FROM GEMINI:", flush=True)
+    print("="*50, flush=True)
+    try:
+        print(json.dumps(parsed_data, indent=4), flush=True)
+    except Exception:
+        print(parsed_data, flush=True)
+    print("="*50 + "\n", flush=True)
+
     parsing_time = time.time() - start_time_parsing
 
     response = {

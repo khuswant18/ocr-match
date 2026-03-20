@@ -30,8 +30,8 @@ def process_paddleocr_text(result):
 def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence, recognition_time, parsing_time, ocr_method):
     user_id = session.get("user_id")
 
-    user = User.query.get(user_id)
-    active_org_id = user.active_organization_id if user else None
+    supplierDict = {}
+    buyerDict = {}
 
     performance = Performance(
         average_confidence=average_confidence,
@@ -46,7 +46,7 @@ def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence,
 
     supplier_data = parsed_data.get('supplier', {})
     supplier = Supplier(
-        gstin=supplier_data.get('gstin'),
+        tin=supplier_data.get('tin'),
         name=supplier_data.get('name', ''),
         address=supplier_data.get('address', '')
     )
@@ -55,7 +55,7 @@ def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence,
 
     buyer_data = parsed_data.get('buyer', {})
     buyer = Buyer(
-        gstin=buyer_data.get('gstin'),
+        tin=buyer_data.get('tin'),
         name=buyer_data.get('name', ''),
         address=buyer_data.get('address', '')
     )
@@ -67,7 +67,6 @@ def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence,
 
     invoice = Invoice(
         user_id=user_id,
-        organization_id=active_org_id if active_org_id else None,
         invoice_number=parsed_data.get('invoice_number', ''),
         po_number=parsed_data.get('po_number', ''),
         invoice_date=parsed_data.get('invoice_date', ''),
@@ -106,7 +105,7 @@ def check_if_invoice(parsed_data):
             return True
             
     supplier = parsed_data.get('supplier', {})
-    if supplier.get('gstin') or supplier.get('name'):
+    if supplier.get('tin') or supplier.get('name'):
         return True
     
     financials = parsed_data.get('financials', {})

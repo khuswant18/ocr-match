@@ -11,6 +11,7 @@ import DoughnutChart from "../../components/DoughnutChart/DoughnutChart";
 import SellerTable from "./SellerTable/SellerTable";
 import BuyerTable from "./BuyerTable/BuyerTable";
 import InvoiceDataTable from "./InvoiceDataTable/InvoiceDataTable";
+import ItemsTable from "./ItemsTable";
 import httpRequest from "../../httpRequest";
 import { COLORS } from "../../styles/constants";
 const cv = window.cv;
@@ -337,6 +338,15 @@ const SummaryCard = (props) => {
                         }
                         onDataChange={(data) =>
                           handleDataChange(data, "buyer_data")
+                        }
+                      />
+                    </div>
+                    <div className={classes.table}>
+                      <ItemsTable
+                        data={
+                          props.dataFromDB
+                            ? props.dataFromDB
+                            : ocrCtx.extractedData
                         }
                       />
                     </div>

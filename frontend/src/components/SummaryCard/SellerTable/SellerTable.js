@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import { useStyles } from "./styles";
 import DataTable from "../../Table/DataTable";
 
@@ -8,8 +7,8 @@ const SellerTable = (props) => {
   return (
     <div className={classes.table}>
       <DataTable
-        data={props.data ? props.data.supplier_data : ""}
-        gstin={props.data ? props.data.supplier_gstin : ""}
+        data={props.data ? props.data.supplier : {}}
+        tin={props.data && props.data.supplier ? props.data.supplier.tin : ""}
         onDataChange={props.onDataChange}
       />
     </div>

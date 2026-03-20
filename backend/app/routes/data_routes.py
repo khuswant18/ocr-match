@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, session, request
 from app.services.data_service import (
-    get_invoices, get_organizations, get_users,
-    get_organization_invoices, save_time_other, get_performance_data
+    get_invoices, get_users,
+    save_time_other, get_performance_data
 )
 
 getData_bp = Blueprint('getdata', __name__)
@@ -16,26 +16,10 @@ def get_invoices_route():
     return jsonify({'invoices': invoices})
 
 
-@getData_bp.route('/get-organizations')
-def get_organizations_route():
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"error": "User not logged in."}), 401
-    organizations, active_organization = get_organizations(user_id)
-    return jsonify({'organizations': organizations, 'active_organization': active_organization})
-
-
 @getData_bp.route('/get-users')
 def get_users_route():
     users = get_users()
     return jsonify({'users': users})
-
-
-@getData_bp.route('/get-organization-invoices', methods=['POST'])
-def get_organization_invoices_route():
-    organization_id = request.json['organization_id']
-    invoices = get_organization_invoices(organization_id)
-    return jsonify({'invoices': invoices})
 
 
 @getData_bp.route('/save-time-other', methods=['POST'])

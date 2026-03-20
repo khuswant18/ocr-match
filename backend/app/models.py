@@ -13,22 +13,6 @@ class UserRole(Enum):
     USER = "user"
 
 
-user_organization = db.Table('user_organization', db.metadata,
-                             db.Column('user_id', db.String(32),
-                                       db.ForeignKey('users.id')),
-                             db.Column('organization_id', db.String(32),
-                                       db.ForeignKey('organizations.id'))
-                             )
-
-
-def generate_invite_code(length):
-    letters_and_digits = string.ascii_uppercase + string.digits
-    while True:
-        code = ''.join(random.choices(letters_and_digits, k=length))
-        if not Organization.query.filter_by(invite_code=code).first():
-            return code
-
-
 class User(db.Model):
     __tablename__ = "users"
     id = db.Column(db.String(32), primary_key=True,
@@ -38,20 +22,6 @@ class User(db.Model):
     password = db.Column(db.Text, nullable=False)
     role = db.Column(db.Enum(UserRole), nullable=False, default=UserRole.USER)
     invoices = db.relationship("Invoice", backref="user")
-    organizations = db.relationship(
-        "Organization", secondary=user_organization, backref=db.backref('users', lazy='dynamic'))
-    active_organization_id = db.Column(db.String(32))
-
-
-class Organization(db.Model):
-    __tablename__ = "organizations"
-    id = db.Column(db.String(32), primary_key=True,
-                   unique=True, default=get_uuid)
-    name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.String(1000))
-    invite_code = db.Column(db.String(5), unique=True,
-                            default=lambda: generate_invite_code(5))
-    invoices = db.relationship("Invoice", backref="organization")
 
 
 class Invoice(db.Model):
@@ -59,8 +29,6 @@ class Invoice(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     user_id = db.Column(db.String(32), db.ForeignKey(
         'users.id'), nullable=False)
-    organization_id = db.Column(db.String(32), db.ForeignKey(
-        'organizations.id'))
     invoice_number = db.Column(db.String(100))
     po_number = db.Column(db.String(100))
     invoice_date = db.Column(db.String(100))
@@ -85,7 +53,7 @@ class Invoice(db.Model):
 class Supplier(db.Model):
     __tablename__ = "suppliers"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    gstin = db.Column(db.String(100))
+    tin = db.Column(db.String(100))
     name = db.Column(db.String(255))
     address = db.Column(db.String(500))
     city = db.Column(db.String(100))
@@ -97,7 +65,7 @@ class Supplier(db.Model):
 class Buyer(db.Model):
     __tablename__ = "buyers"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    gstin = db.Column(db.String(100))
+    tin = db.Column(db.String(100))
     name = db.Column(db.String(255))
     address = db.Column(db.String(500))
     city = db.Column(db.String(100))

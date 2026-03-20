@@ -33,7 +33,6 @@ def create_app():
 def register_blueprints(app):
     from app.auth.authentication import authentication_bp
     from app.routes.preprocessing import preprocessing_bp
-    from app.routes.organization import organizations_bp
     from app.routes.data_routes import getData_bp
     from app.ocr.tesseractOCR import tesseract_bp
     from app.ocr.paddleOCR import paddleocr_bp
@@ -42,7 +41,6 @@ def register_blueprints(app):
 
     app.register_blueprint(authentication_bp)
     app.register_blueprint(preprocessing_bp)
-    app.register_blueprint(organizations_bp)
     app.register_blueprint(getData_bp)
     app.register_blueprint(tesseract_bp)
     app.register_blueprint(paddleocr_bp)

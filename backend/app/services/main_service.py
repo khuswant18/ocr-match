@@ -64,7 +64,7 @@ def update_invoice_service(new_data):
 
     supplier_data = new_data.get("supplier_data", {})
     if invoice.supplier:
-        invoice.supplier.gstin = supplier_data.get("GSTIN", invoice.supplier.gstin)
+        invoice.supplier.tin = supplier_data.get("TIN", invoice.supplier.tin)
         invoice.supplier.name = supplier_data.get("Name", invoice.supplier.name)
         invoice.supplier.address = supplier_data.get("Address", invoice.supplier.address)
         invoice.supplier.pincode = supplier_data.get("Pincode", invoice.supplier.pincode)
@@ -73,7 +73,7 @@ def update_invoice_service(new_data):
 
     buyer_data = new_data.get("buyer_data", {})
     if invoice.buyer:
-        invoice.buyer.gstin = buyer_data.get("GSTIN", invoice.buyer.gstin)
+        invoice.buyer.tin = buyer_data.get("TIN", invoice.buyer.tin)
         invoice.buyer.name = buyer_data.get("Name", invoice.buyer.name)
         invoice.buyer.address = buyer_data.get("Address", invoice.buyer.address)
         invoice.buyer.pincode = buyer_data.get("Pincode", invoice.buyer.pincode)

@@ -76,7 +76,6 @@ const SideMenu = (props) => {
             <div className={classes.linkContainer}>
               <LinkItem to="/" Icon={DashboardIcon} text="Dashboard" />
               <LinkItem to="/history" Icon={HistoryIcon} text="Your scans" />
-              <LinkItem to="/organization" Icon={BusinessIcon} text="Organizations" />
               {role === "admin" && (
                 <LinkItem to="/users" Icon={GroupIcon} text="Manage users" />
               )}
