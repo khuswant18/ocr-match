@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 
+import { useEffect, useState } from "react";
 import { useSnackbar } from "notistack";
 import { Grid } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -17,7 +17,8 @@ const HistoryPage = () => {
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
   const { enqueueSnackbar } = useSnackbar();
 
-  useEffect(() => {
+  
+  useEffect(() => { 
     (async () => {
       await fetchInvoiceData();
     })();
@@ -27,17 +28,17 @@ const HistoryPage = () => {
   const fetchInvoiceData = async () => {
     try {
       const resp = await httpRequest.get(`${process.env.REACT_APP_BACKEND_URL}/get-invoices`);
-      setInvoicesData(resp.data.invoices);
+      setInvoicesData(resp.data.invoices); 
     } catch (error) {
       console.log("Error");
       enqueueSnackbar("Error fetching invoices", { variant: "error" });
-    }
+    }  
   };
 
   const openSummary = (invoiceData) => {
     setIsSummaryOpen(true);
     setSelectedInvoice(invoiceData);
-  };
+  }; 
 
   const handleDataChange = () => {
     fetchInvoiceData();
@@ -49,7 +50,7 @@ const HistoryPage = () => {
         {!isSummaryOpen && (
           <div className={classes.table}>
             <InvoiceTable
-              invoiceData={invoicesData}
+              invoiceData={invoicesData} 
               openSummary={openSummary}
               refreshInvoiceData={fetchInvoiceData}
             />

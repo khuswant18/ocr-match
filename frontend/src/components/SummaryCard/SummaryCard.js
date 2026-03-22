@@ -23,7 +23,7 @@ const SummaryCard = (props) => {
   const [chartOpen, setChartOpen] = useState(false);
   const [isInvoice, setIsInvoice] = useState(false);
   const [dataChanged, setDataChanged] = useState(false); 
-  const [initialData, setInitialData] = useState({});
+  const [initialData, setInitialData] = useState({}); 
   const [base64Image, setBase64Image] = useState("");
   const [newData, setNewData] = useState({});
   const { enqueueSnackbar } = useSnackbar();
@@ -33,23 +33,24 @@ const SummaryCard = (props) => {
   useEffect(() => {
     setIsInvoice(ocrCtx.isInvoice);
     //eslint-disable-next-line
-  }, []);
+  }, []); 
 
   useEffect(() => {
     setInitialData(props.dataFromDB ? props.dataFromDB : ocrCtx.extractedData);
   }, [props.dataFromDB, ocrCtx.extractedData]);
-
-  let pdfBase64;
+  let pdfBase64; 
   let imageBase64;
-  if (Object.keys(props).length !== 0) {
+  if (Object.keys(props).length !== 0) { 
     if (props.dataFromDB.pdf_file) {
       pdfBase64 = props.dataFromDB.pdf_file;
-    } else if (props.dataFromDB.image_file) {
+    } else if (props.dataFromDB.image_file) { 
       imageBase64 = props.dataFromDB.image_file;
     }
   }
 
   useEffect(() => {
+
+
     if (ocrCtx.actualImage) {
       const reader = new FileReader();
       reader.onloadend = function () {
@@ -67,7 +68,7 @@ const SummaryCard = (props) => {
     }
     const context = canvas.getContext("2d");
 
-    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.clearRect(0, 0, canvas.width, canvas.height); 
 
     if (pdfBase64) {
       const pdfData = atob(pdfBase64);
@@ -278,7 +279,7 @@ const SummaryCard = (props) => {
                         rows={20}
                         variant={"standard"}
                         className={classes.focused}
-                        defaultValue={
+                        defaultValue={ 
                           props.dataFromDB
                             ? props.dataFromDB.text
                             : ocrCtx.textResult
@@ -292,17 +293,46 @@ const SummaryCard = (props) => {
                         id="invoice"
                         ref={canvasRef}
                       />
-                    </div>
+                    </div> 
                   )}
 
                   <ButtonContained
                     variant="contained"
                     onClick={handleShowText}
                     style={{ margin: "12px", padding: "7px 22px" }}
-                  >
-                    {showText ? "SHOW INVOICE" : "SHOW TEXT"}
+                  >  
+                    {showText ? "SHOW INVOICE" : "SHOW TEXT"} 
                   </ButtonContained>
+
+                  <div className={classes.textContainer} style={{ marginTop: "20px" }}>
+                  {showText && (
+                    <Paper elevation={3} sx={{ p: 2, borderRadius: 5 }}>
+                      <TextField
+                        id="parsed-json-static"
+                        sx={{ backgroundColor: "white", borderRadius: "20px" }}
+                        label="Gemini Parsed Data (JSON)"
+                        multiline
+                        fullWidth 
+                        rows={20}
+                        variant={"standard"}
+                        className={classes.focused}
+                        value={JSON.stringify(
+                          props.dataFromDB ? props.dataFromDB : ocrCtx.extractedData,
+                          null,
+                          2
+                        )}
+                        InputProps={{
+                          readOnly: true,
+                        }}
+                      />
+                    </Paper>
+                  )}
                 </div>
+
+                </div>
+                
+
+
               </Grid>
               {props.dataFromDB || isInvoice ? (
                 <Grid item xs={6}>

@@ -34,9 +34,9 @@ const HomePage = () => {
     })();
   }, [userCtx, enqueueSnackbar]); 
 
-  useEffect(() => {
+  useEffect(() => { 
     setActivePage(ocrCtx.activePage);
-  }, [ocrCtx]);
+  }, [ocrCtx]); 
 
   return (
     <>
@@ -49,8 +49,8 @@ const HomePage = () => {
           {activePage === 3 && <SummaryCard />}
           <canvas className={classes.invoice} id="output" />
         </div> 
-      </AppLayout>
-    </>
+      </AppLayout>  
+    </> 
   );
 };
 

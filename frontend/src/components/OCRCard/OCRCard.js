@@ -12,6 +12,7 @@ const OCRCard = () => {
   const classes = useStyles();
   const ocrCtx = useContext(OCRContext);
   const [loading, setLoading] = useState(false);
+  const [rawParsedData,setRawParsedData] = useState('') 
   const { enqueueSnackbar } = useSnackbar();
 
   const handleOCRmethod = async (OCRmethod) => {
@@ -34,17 +35,18 @@ const OCRCard = () => {
     try {
       const startTime = performance.now();
       const resp = await httpRequest.post(`${process.env.REACT_APP_BACKEND_URL}/${OCRmethod}`, formData);
-      const endTime = performance.now();
+      setRawParsedData(resp["data"]["parsed_data"])  
+      const endTime = performance.now(); 
       const duration = (endTime - startTime) / 1000;
       const time_other = duration - resp.data.time.recognition + resp.data.time.parsing;
-      const time = resp["data"]["time"];
-      time["other"] = time_other;
-      ocrCtx.setTextResult(resp["data"]["text"]);
+      const time = resp["data"]["time"]; 
+      time["other"] = time_other; 
+      ocrCtx.setTextResult(resp["data"]["text"]); 
       const isInvoice = checkIfInvoice(resp["data"]);
-      const extractedData = {
+      const extractedData = {  
         ...resp["data"]["parsed_data"],
-        id: resp["data"]["invoice_id"],
-      };
+        id: resp["data"]["invoice_id"], 
+      };  
       ocrCtx.setExtractedData(extractedData);
       ocrCtx.setInvoiceId(resp["data"]["invoice_id"]);
       if (isInvoice) {
@@ -62,7 +64,7 @@ const OCRCard = () => {
   const checkIfInvoice = (data) => {
     // Check if the parsed_data exists at all, followed by key values mapped from Gemini (like invoice_number, etc)
     const pData = data?.parsed_data || {};
-    if (
+    if ( 
       !pData.invoice_number &&
       !pData.invoice_date &&
       !pData.total_amount &&
@@ -124,7 +126,7 @@ const OCRCard = () => {
           </Grid>
         </Grid>
 
-        {loading && <CircularProgress sx={{ color: COLORS.PRIMARY, mt: "15px" }} />}
+        {loading && <CircularProgress sx={{ color: COLORS.PRIMARY, mt: "15px" }} />} 
       </div>
     </>
   );

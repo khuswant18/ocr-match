@@ -57,7 +57,7 @@ def process_paddleocr():
             'parsing': parsing_time,
         },
         'average_confidence': average_confidence * 100
-    }
+    } 
 
     if check_if_invoice(parsed_data):
         pdf_file, image_file = get_files_from_request()
