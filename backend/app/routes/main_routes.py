@@ -2,42 +2,31 @@ from flask import Blueprint, jsonify, session, request
 from app.services.main_service import (
     get_current_user_service, edit_role_service, update_user_service,
     delete_invoice_service, update_invoice_service
-)
+) 
 
 main_bp = Blueprint('main', __name__)
 
 
 @main_bp.route("/@me")
 def get_current_user():
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"error": "Unauthorized"}), 401
+    return jsonify({"name": "Demo User", "email": "demo@demo.com", "role": "admin"})
 
-    user = get_current_user_service(user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+@main_bp.route("/edit-role", methods=["POST"]) 
+def edit_role():  
+    role = request.json["role"]        
+    user_id = request.json["user_id"]           
 
-    return jsonify(user)
-
-
-@main_bp.route("/edit-role", methods=["POST"])
-def edit_role():
-    role = request.json["role"]
-    user_id = request.json["user_id"]
-
-    edit_role_service(user_id, role)
-    return jsonify({"success": True}), 200
-
+    edit_role_service(user_id, role)  
+    return jsonify({"success": True}), 200 
 
 @main_bp.route("/update-user", methods=["POST"])
 def update_user():
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    name = request.json["name"]
-    email = request.json["email"]
-    update_user_service(user_id, name, email)
+    from app.models import User
+    admin_user = User.query.filter_by(email='admin').first()
+    user_id = admin_user.id if admin_user else None
+    name = request.json["name"] 
+    email = request.json["email"] 
+    update_user_service(user_id, name, email) 
 
     return jsonify({"success": True}), 200
 

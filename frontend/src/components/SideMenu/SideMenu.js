@@ -3,16 +3,12 @@ import { Divider } from "@mui/material";
 
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import HistoryIcon from "@mui/icons-material/History";
-import BusinessIcon from "@mui/icons-material/Business";
 import GroupIcon from "@mui/icons-material/Group";
 import IconButton from "@mui/material/IconButton";
 import ArrowBackIosIcon from "@mui/icons-material/ArrowBackIos";
-import LogoutIcon from "@mui/icons-material/Logout";
 import { useMediaQuery } from "@mui/material";
 
 import userContext from "../../context/user-context";
-import AuthContext from "../../context/auth-context";
-import httpRequest from "../../httpRequest";
 import { useStyles } from "./styles";
 import ProfileIcon from "../ProfileIcon/ProfileIcon";
 import LinkItem from "./LinkItem/LinkItem";
@@ -22,17 +18,10 @@ import { COLORS } from "../../styles/constants";
 
 const SideMenu = (props) => {
   const userCtx = useContext(userContext);
-  const authCtx = useContext(AuthContext);
   const { role } = userCtx;
   const classes = useStyles();
   const isSmallScreen = useMediaQuery("(max-width:540px)");
   const isExtraSmallScreen = useMediaQuery("(max-width:470px)");
-
-  const logoutUser = async () => {
-    await httpRequest.post(`${process.env.REACT_APP_BACKEND_URL}/logout`);
-    authCtx.logout();
-    window.location.href = "/login";
-  };
 
   return (
     <div
@@ -85,18 +74,6 @@ const SideMenu = (props) => {
             <div>
               <ProfileIcon />
             </div>
-            <IconButton onClick={logoutUser}>
-              <LogoutIcon
-                sx={{
-                  color: "white",
-                  fontSize: 30,
-                  mt: 2,
-                  "&:hover": {
-                    color: COLORS.PRIMARY,
-                  },
-                }}
-              />
-            </IconButton>
           </div>
         </>
       )}

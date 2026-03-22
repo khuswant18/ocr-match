@@ -1,6 +1,4 @@
 import { useContext, useEffect, useState } from "react";
-import { useSnackbar } from "notistack";
-import httpRequest from "../../httpRequest";
 import OCRContext from "../../context/ocr-context";
 import userContext from "../../context/user-context";
 import AppLayout from "../../components/AppLayout/AppLayout";
@@ -15,24 +13,17 @@ const HomePage = () => {
   const classes = useStyles();
   const ocrCtx = useContext(OCRContext);
   const userCtx = useContext(userContext);
-  const [userName, setUserName] = useState();
+  const [userName, setUserName] = useState("Demo User");
   const [activePage, setActivePage] = useState(0);
-  const { enqueueSnackbar } = useSnackbar();
 
   useEffect(() => {
     (async () => {
-      try {
-        const resp = await httpRequest.get(`${process.env.REACT_APP_BACKEND_URL}/@me`);
-        userCtx.setUserName(resp.data.name);
-        userCtx.setEmail(resp.data.email);
-        userCtx.setRole(resp.data.role);
-        setUserName(resp.data.name);
-      } catch (error) {
-        enqueueSnackbar("Not authenticated", { variant: "error" });
-        window.location.href = "/login";
-      }
+      userCtx.setUserName("Demo User");
+      userCtx.setEmail("demo@demo.com");
+      userCtx.setRole("admin");
+      setUserName("Demo User");
     })();
-  }, [userCtx, enqueueSnackbar]); 
+  }, [userCtx]); 
 
   useEffect(() => { 
     setActivePage(ocrCtx.activePage);

@@ -16,24 +16,20 @@ import httpRequest from "../../httpRequest";
 const ProfileModal = ({ open, onClose }) => {
   const classes = useStyles();
   const userCtx = useContext(UserContext);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState("Demo User");
+  const [email, setEmail] = useState("demo@demo.com");
   const [isChangingName, setIsChangingName] = useState(false);
   const [isChangingEmail, setIsChangingEmail] = useState(false);
-  const [activeOrganization, setActiveOrganization] = useState("");
   const { enqueueSnackbar } = useSnackbar();
 
   useEffect(() => {
-    setName(userCtx.userName);
-    setEmail(userCtx.email);
-    if (userCtx.activeOrganization) {
-      setActiveOrganization(userCtx.activeOrganization);
-    }
+    setName(userCtx.userName || "Demo User");
+    setEmail(userCtx.email || "demo@demo.com");
   }, [userCtx]);
 
   const handleClose = () => {
-    setName(userCtx.userName);
-    setEmail(userCtx.email);
+    setName(userCtx.userName || "Demo User");
+    setEmail(userCtx.email || "demo@demo.com");
     setIsChangingName(false);
     setIsChangingEmail(false);
     onClose();
@@ -153,16 +149,6 @@ const ProfileModal = ({ open, onClose }) => {
             margin="normal"
           />
         )}
-        <div className={classes.profile}>
-          <div className={classes.text}>
-            <Typography component="p" variant="body1">
-              Active organization:
-            </Typography>
-            <Typography component="p" variant="body1">
-              {activeOrganization.name}
-            </Typography>
-          </div>
-        </div>
       </DialogContent>
       <DialogActions sx={{ mr: 1 }}>
         <ButtonOutlined onClick={handleClose}>Cancel</ButtonOutlined>

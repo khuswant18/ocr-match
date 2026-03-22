@@ -47,4 +47,4 @@ Follow these tested steps to get the application spun up locally. The entire app
   ```
 
 * **Backend dependencies failing to build**: 
-  The `backend/Dockerfile` has been modernized to run on `python:3.10-slim-bullseye`. If you run into PaddlePaddle or package mismatches in the future, check `backend/requirements.txt` to ensure package version mappings correctly align with your CPU architecture (`aarch64` / `arm64` typically for Macs/M1).
+  The `backend/Dockerfile` has been modernized to run on `python:3.10-slim-bullseye`. If you run into PaddlePaddle or package mismatches in the future, check `backend/requirements.txt` to ensure package version mappings correctly align with your CPU architecture (`aarch64` / `arm64` typically for Macs/M1).# Authentication Removed

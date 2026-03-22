@@ -31,7 +31,6 @@ def create_app():
 
 
 def register_blueprints(app):
-    from app.auth.authentication import authentication_bp
     from app.routes.preprocessing import preprocessing_bp
     from app.routes.data_routes import getData_bp
     from app.ocr.tesseractOCR import tesseract_bp
@@ -39,7 +38,6 @@ def register_blueprints(app):
     from app.api.companyAPI import companyAPI_bp
     from app.routes.main_routes import main_bp
 
-    app.register_blueprint(authentication_bp)
     app.register_blueprint(preprocessing_bp)
     app.register_blueprint(getData_bp)
     app.register_blueprint(tesseract_bp)

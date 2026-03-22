@@ -12,11 +12,10 @@ const OCRCard = () => {
   const classes = useStyles();
   const ocrCtx = useContext(OCRContext);
   const [loading, setLoading] = useState(false);
-  const [rawParsedData,setRawParsedData] = useState('') 
   const { enqueueSnackbar } = useSnackbar();
 
   const handleOCRmethod = async (OCRmethod) => {
-    setLoading(true);
+    setLoading(true); 
 
     let formData = new FormData();
     formData.append("file", ocrCtx.actualImage);
@@ -28,14 +27,13 @@ const OCRCard = () => {
       formData.append("image", ocrCtx.file);
     } else if (ocrCtx.file.type === "image/webp") {
       formData.append("image", ocrCtx.file);
-    } else {
-      formData.append("image", ocrCtx.file);
-    }
+    } else { 
+      formData.append("image", ocrCtx.file); 
+    }  
 
     try {
       const startTime = performance.now();
       const resp = await httpRequest.post(`${process.env.REACT_APP_BACKEND_URL}/${OCRmethod}`, formData);
-      setRawParsedData(resp["data"]["parsed_data"])  
       const endTime = performance.now(); 
       const duration = (endTime - startTime) / 1000;
       const time_other = duration - resp.data.time.recognition + resp.data.time.parsing;
@@ -126,7 +124,7 @@ const OCRCard = () => {
           </Grid>
         </Grid>
 
-        {loading && <CircularProgress sx={{ color: COLORS.PRIMARY, mt: "15px" }} />} 
+        {loading && <CircularProgress sx={{ color: COLORS.PRIMARY, mt: "15px" }} />}
       </div>
     </>
   );

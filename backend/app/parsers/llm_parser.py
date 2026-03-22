@@ -17,16 +17,16 @@ The input is noisy OCR output from English invoices. The text may contain spelli
 
 EXTRACTION RULES:
 1. Fix OCR errors automatically (e.g. "DELVERY" -> "DELIVERY").
-2. Understand Indian keywords:
+2. Understand Indian keywords: 
    - "inv", "inv no.", "Invoice No", "invoice number" -> invoice_number
-   - "Invoice Date", "Date" -> invoice_date
-   - "PO number", "p.o no", "po no", "PO", "po" -> po_number
-   - "Due Date" -> due_date
+   - "Invoice Date", "Date" -> invoice_date 
+   - "PO number", "p.o no", "po no", "PO", "po" -> po_number 
+   - "Due Date" -> due_date 
    - "Total", "Grand Total" -> total_amount
    - "TIN" -> tin
 3. Extract items carefully: group quantity, unit price, total correctly.
 4. Normalize numbers: "1,660.00" -> 1660.00 (remove commas, use dot for decimals).
-5. Ignore signatures and legal text.
+5. Ignore signatures and legal text. 
 6. If uncertain, return null or empty string.
 
 OUTPUT FORMAT (STRICT JSON ONLY): 
@@ -45,7 +45,7 @@ OUTPUT FORMAT (STRICT JSON ONLY):
 
 OCR TEXT:
 {ocr_text}
-
+ 
 FINAL RULE: Return ONLY valid JSON matching the schema. No explanation. 
 """
 

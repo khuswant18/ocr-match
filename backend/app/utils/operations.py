@@ -28,7 +28,8 @@ def process_paddleocr_text(result):
 
 
 def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence, recognition_time, parsing_time, ocr_method):
-    user_id = session.get("user_id")
+    admin_user = User.query.filter_by(email='admin').first()
+    user_id = admin_user.id if admin_user else None
 
     supplierDict = {}
     buyerDict = {}
