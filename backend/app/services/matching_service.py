@@ -99,7 +99,11 @@ def _item_result(product_code, po_item, grn_item, inv_item, issue):
     return {
         "product_code": product_code,
         "po_qty": po_item.get("qty", 0) if po_item else 0,
+<<<<<<< HEAD
         "grn_qty": grn_item.get("qty", 0) if grn_item else 0,
+=======
+        "grn_qty": grn_item.get("qty", 0) if grn_item else 0, 
+>>>>>>> 66bd8bd (chore: Remove unused files and update docker-compose to eliminate PostgreSQL service)
         "invoice_qty": inv_item.get("qty", 0) if inv_item else 0,
         "po_price": po_item.get("price", 0) if po_item else 0,
         "invoice_price": inv_item.get("price", 0) if inv_item else 0,
@@ -117,10 +121,20 @@ def run_three_way_match(po_number):
 
     try:
         po_items = _fetch_po_items(cursor, po_number)
+<<<<<<< HEAD
         grn_items = _fetch_grn_items(cursor, po_number)
         inv_items = _fetch_invoice_items(cursor, po_number)
 
         # Check if we have enough data
+=======
+        grn_items = _fetch_grn_items(cursor, po_number)  
+        inv_items = _fetch_invoice_items(cursor, po_number)
+        print("po_items",json.dumps(po_items, indent=4))
+        print("grn_items",json.dumps(grn_items, indent=4))
+        print("inv_items",json.dumps(inv_items, indent=4))
+
+        # Check if we have enough data 
+>>>>>>> 66bd8bd (chore: Remove unused files and update docker-compose to eliminate PostgreSQL service)
         if not po_items:
             return {"error": "Not enough fields — no PO lines found for this PO number"}
 
@@ -199,8 +213,13 @@ def run_three_way_match(po_number):
                 result["price_mismatch"].append(
                     _item_result(code, po, grn, inv, f"PO price ({po_price}) != Invoice price ({inv_price})")
                 )
+<<<<<<< HEAD
 
         return result
+=======
+        print("result",json.dumps(result,indent=4)) 
+        return result 
+>>>>>>> 66bd8bd (chore: Remove unused files and update docker-compose to eliminate PostgreSQL service)
 
     finally:
         cursor.close()
