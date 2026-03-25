@@ -37,6 +37,7 @@ def register_blueprints(app):
     from app.ocr.paddleOCR import paddleocr_bp
     from app.api.companyAPI import companyAPI_bp
     from app.routes.main_routes import main_bp
+    from app.routes.matching_routes import matching_bp
 
     app.register_blueprint(preprocessing_bp)
     app.register_blueprint(getData_bp)
@@ -44,6 +45,7 @@ def register_blueprints(app):
     app.register_blueprint(paddleocr_bp)
     app.register_blueprint(companyAPI_bp)
     app.register_blueprint(main_bp)
+    app.register_blueprint(matching_bp)
 
 
 def initialize_database():

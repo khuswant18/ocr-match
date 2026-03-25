@@ -4,6 +4,7 @@ import { Divider } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import HistoryIcon from "@mui/icons-material/History";
 import GroupIcon from "@mui/icons-material/Group";
+import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import IconButton from "@mui/material/IconButton";
 import ArrowBackIosIcon from "@mui/icons-material/ArrowBackIos";
 import { useMediaQuery } from "@mui/material";
@@ -65,6 +66,7 @@ const SideMenu = (props) => {
             <div className={classes.linkContainer}>
               <LinkItem to="/" Icon={DashboardIcon} text="Dashboard" />
               <LinkItem to="/history" Icon={HistoryIcon} text="Your scans" />
+              <LinkItem to="/matching" Icon={CompareArrowsIcon} text="Three-Way Match" />
               {role === "admin" && (
                 <LinkItem to="/users" Icon={GroupIcon} text="Manage users" />
               )}
