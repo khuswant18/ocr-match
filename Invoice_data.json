@@ -1,0 +1,86 @@
+Invoice_data
+{
+    "invoice_number": "47846",
+    "po_number": "VFI-4010510LLB",
+    "invoice_date": "11/04/2025",
+    "due_date": "",
+    "supplier": { 
+        "name": "VIRGINIA FOOD,INC",
+        "address": "Purok 3 Villa Kananga,8600 Butuan City Agusan Del Norte,Philippines",
+        "tin": "000-065-503-00034"
+    }, 
+    "buyer": { 
+        "name": "PRINCITY INC.-TANDAG(LADLAD)",
+        "address": "MOONGLOW,BAG-ONG LUNGSOD TANDAG CITY",
+        "tin": "426-697-124-008"
+    },
+    "payment_method": "",
+    "bank_details": {
+        "account_number": "",
+        "ifsc": "",
+        "bank_name": ""
+    },   
+    "items": [
+        { 
+            "description": "CHAMPION Hotdog Jumbo 4\"2k/5",
+            "quantity": 3.0,                                ## case quantity
+            "unit_price": 1520.0, #mismatch (product code -> 1357) 
+            "total_price": 4560.0
+        }, 
+        { 
+            "description": "CHAMPION Hotdog Regular 2k/5",
+            "quantity": 2.0,
+            "unit_price": 1520.0,
+            "total_price": 3040.0
+        },
+        {
+            "description": "EL RANCHO Spiced Ham 2k/6",
+            "quantity": 1.0,
+            "unit_price": 3144.0,
+            "total_price": 3144.0
+        },
+        {
+            "description": "Happy Booster Hotdog Regular 2k (Premium Hotdog)/5",
+            "quantity": 2.0,
+            "unit_price": 2210.0,
+            "total_price": 4420.0
+        },
+        {
+            "description": "Happy Booster Hotdog Jumbo 4.52k (Premium Hotdog/5",
+            "quantity": 1.0,
+            "unit_price": 2180.0,
+            "total_price": 2180.0
+        },
+        {
+            "description": "VIRGINIA Cheesedog Jumbo 4.52k /5",
+            "quantity": 2.0,
+            "unit_price": 2290.0,
+            "total_price": 4580.0
+        },
+        {
+            "description": "VIRGINIA Pork Tocino 1k/10",
+            "quantity": 3.0,
+            "unit_price": 3150.0,
+            "total_price": 9450.0
+        },
+        {
+            "description": "VIRGINIA Chorizo de Cebu 2k /5",
+            "quantity": 1.0,
+            "unit_price": 3400.0,
+            "total_price": 3400.0
+        },
+        {
+            "description": "VIRGINIA Hotdog Balls 2k",
+            "quantity": 1.0,
+            "unit_price": 2300.0,
+            "total_price": 2300.0
+        }
+    ],
+    "financials": {
+        "subtotal": 29791.61,
+        "cgst": 0,
+        "sgst": 0,
+        "igst": 0,
+        "total_amount": 33366.6
+    }
+}
