@@ -2,7 +2,6 @@ import { useLocation } from "react-router-dom";
 import MenuIcon from "@mui/icons-material/Menu";
 import { IconButton, Typography } from "@mui/material";
 import { useStyles } from "./styles";
-import ProfileIcon from "../ProfileIcon/ProfileIcon";
 import { COLORS } from "../../styles/constants";
 
 const Navbar = (props) => {
@@ -12,11 +11,11 @@ const Navbar = (props) => {
   const getPageTitle = () => {
     switch (location.pathname) {
       case "/":
-        return `Welcome Back ${props.userName}!`;
+        return `Welcome to Invoice OCR!`;
       case "/history":
         return "Your scans";
-      case "/users":
-        return "Manage users";
+      case "/matching":
+        return "Matching";
       default:
         return "";
     }
@@ -47,9 +46,6 @@ const Navbar = (props) => {
         >
           {getPageTitle()}
         </Typography>
-      </div>
-      <div className={classes.rightButtons}>
-        <ProfileIcon />
       </div>
     </div>
   );

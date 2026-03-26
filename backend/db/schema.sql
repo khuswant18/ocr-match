@@ -8,6 +8,7 @@ CREATE TABLE invoices (
     supplier_name VARCHAR(255), 
     store_code VARCHAR(20),
 
+    net_amount DECIMAL(12,2),           -- ADDED: Pre-tax amount (Vatable Sales)
     total_amount DECIMAL(12,2),
     tax_amount DECIMAL(12,2),
     discount_amount DECIMAL(12,2),
@@ -34,7 +35,7 @@ CREATE TABLE invoice_items (
     uom VARCHAR(20),
     normalized_qty DECIMAL(12,2),      -- after conversion
 
-    FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+    FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
 );
 
 CREATE TABLE matching_results (
@@ -50,13 +51,16 @@ CREATE TABLE matching_results (
     po_qty DECIMAL(12,2),
     grn_qty DECIMAL(12,2),
     invoice_qty DECIMAL(12,2),
+    qty_variance DECIMAL(12,2),        -- ADDED: (invoice_qty - grn_qty). If > 0, overbilled.
+    is_qty_match BOOLEAN,              -- ADDED: True if variance <= 0
 
     po_price DECIMAL(12,2),
     invoice_price DECIMAL(12,2),
+    price_variance DECIMAL(12,4),      -- ADDED: (invoice_price - po_price). If > 0, overpriced.
+    is_price_match BOOLEAN,            -- ADDED: True if variance <= 0
 
     status VARCHAR(20),   -- matched / mismatch
-
-    issue TEXT,           -- -- reason (e.g., "Price too high", "Quantity exceeds GRN")
+    issue_summary TEXT,   -- e.g., "Overbilled by 2 units and overpriced by $10/unit"
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,

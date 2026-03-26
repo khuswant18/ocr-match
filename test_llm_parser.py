@@ -37,7 +37,7 @@ class LLMParser:
                 "name": "Local Restaurant",
                 "address": "Panska 5, 811 01 Bratislava", 
                 "ico": "87654321",
-                "dic": "2020987654",
+                "dic": "2020987654", 
                 "ic_dph": "SK2020987654"
               },
               "payment_method": "Prevodom",

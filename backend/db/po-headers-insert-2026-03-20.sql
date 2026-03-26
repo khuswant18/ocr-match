@@ -11,7 +11,7 @@ CREATE TABLE po_headers (
   term_code int DEFAULT NULL,
   po_expected_delivery_date date DEFAULT NULL,
   po_cancel_date date DEFAULT NULL,
-  po_notes1 text,
+  po_notes1 text, 
   po_notes2 text,
   po_notes3 text,
   po_freight_allowed int DEFAULT NULL,

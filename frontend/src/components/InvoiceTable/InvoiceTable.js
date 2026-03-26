@@ -25,9 +25,9 @@ import { COLORS } from "../../styles/constants";
 
 const columns = [
   { id: "inv_number", label: "Invoice Number", minWidth: 170 },
+  { id: "po_number", label: "PO Number", minWidth: 100 },
   { id: "supplier", label: "Supplier", minWidth: 100 },
-  { id: "buyer", label: "Buyer", minWidth: 100 },
-  { id: "due_date", label: "Due Date", minWidth: 100 },
+  { id: "invoice_date", label: "Invoice Date", minWidth: 100 },
   { id: "amount", label: "Amount", minWidth: 100 },
 ];
 
@@ -47,32 +47,19 @@ const InvoiceTable = ({ invoiceData, openSummary, refreshInvoiceData }) => {
     rows.push({
       id: invoice.id,
       inv_number: invoice.invoice_number,
-      supplier: invoice.supplier_data.Name,
-      buyer: invoice.buyer_data.Name,
-      due_date: invoice.due_date,
+      po_number: invoice.po_number,
+      supplier: invoice.supplier_name,
+      invoice_date: invoice.invoice_date,
       amount: invoice.total_amount,
     });
 
     dataToSearch.push({
       id: invoice.id,
       inv_number: invoice.invoice_number,
-      due_date: invoice.due_date,
+      po_number: invoice.po_number,
+      invoice_date: invoice.invoice_date,
       amount: invoice.total_amount,
-      bank: invoice.bank,
-      ifsc: invoice.ifsc,
-      account_number: invoice.account_number,
-      supplier: invoice.supplier_data.Name,
-      buyer: invoice.buyer_data.Name,
-      supplier_tin: invoice.supplier_data.TIN,
-      supplier_city: invoice.supplier_data.City,
-      supplier_state: invoice.supplier_data.State,
-      supplier_pincode: invoice.supplier_data.Pincode,
-      supplier_address: invoice.supplier_data.Address,
-      buyer_tin: invoice.buyer_data.TIN,
-      buyer_city: invoice.buyer_data.City,
-      buyer_state: invoice.buyer_data.State,
-      buyer_pincode: invoice.buyer_data.Pincode,
-      buyer_address: invoice.buyer_data.Address,
+      supplier: invoice.supplier_name,
     });
   });
 
@@ -141,9 +128,9 @@ const InvoiceTable = ({ invoiceData, openSummary, refreshInvoiceData }) => {
     return {
       id: row.id,
       inv_number: row.inv_number,
+      po_number: row.po_number,
       supplier: row.supplier,
-      buyer: row.buyer,
-      due_date: row.due_date,
+      invoice_date: row.invoice_date,
       amount: row.amount,
     };
   });
