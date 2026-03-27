@@ -1,7 +1,7 @@
 import sys
 import os
 
-
+# Add backend root so we can import the standalone mysql connector
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from mysql_db import get_connection
 
@@ -56,7 +56,6 @@ def _fetch_grn_items(cursor, po_number):
     return items
 
 
-
 def _fetch_invoice_items(cursor, po_number):
     """Fetch invoice items using NORMALIZED quantity and grabs IDs."""
     cursor.execute(
@@ -90,18 +89,6 @@ def _fetch_invoice_items(cursor, po_number):
     return items
 
 
-def _item_result(product_code, po_item, grn_item, inv_item, issue):
-    """Build a standard result dict for one product."""
-    return {
-        "product_code": product_code,
-        "po_qty": po_item.get("qty", 0) if po_item else 0,
-        "grn_qty": grn_item.get("qty", 0) if grn_item else 0, 
-        "invoice_qty": inv_item.get("qty", 0) if inv_item else 0,
-        "po_price": po_item.get("price", 0) if po_item else 0,
-        "invoice_price": inv_item.get("price", 0) if inv_item else 0,
-        "issue": issue,
-    }
-
 def run_three_way_match(po_number):
     """
     Executes the 3-Way Match, saves exact variances to the database, 
@@ -114,10 +101,9 @@ def run_three_way_match(po_number):
         po_items = _fetch_po_items(cursor, po_number)
         grn_items = _fetch_grn_items(cursor, po_number)  
         inv_items = _fetch_invoice_items(cursor, po_number)
-        print("po_items",po_items)
-        print("grn_items",grn_items)
-        print("inv_items",inv_items) 
-
+        print("po_items", po_items)
+        print("grn_items", grn_items)
+        print("inv_items", inv_items) 
 
         if not po_items:
             return {"error": "No PO lines found for this PO number."}
@@ -126,32 +112,26 @@ def run_three_way_match(po_number):
 
         import difflib
         
-
         po_desc_to_code = {data.get("desc", "").lower(): code for code, data in po_items.items() if data.get("desc")}
         
-
         for inv_code, inv_data in list(inv_items.items()):
             if inv_code.startswith("unknown_"):
                 inv_desc = inv_data.get("desc", "").lower()
                 matched_po_code = None
                 
-
                 if inv_desc and po_desc_to_code:
                     matches = difflib.get_close_matches(inv_desc, po_desc_to_code.keys(), n=1, cutoff=0.4)
                     if matches:
                         matched_po_code = po_desc_to_code[matches[0]]
                 
-
                 if not matched_po_code:
                     prices_match = [c for c, p_data in po_items.items() if abs(p_data["price"] - inv_data["price"]) <= 0.05]
                     if len(prices_match) == 1:
                         matched_po_code = prices_match[0]
                 
-
                 if matched_po_code:
                     if matched_po_code in inv_items:
-
-                        inv_items[matched_po_code]["qty"] += inv_data["qty"]
+                        # FIX 1: Throw away the ghost OCR duplicate, DO NOT add the quantities
                         del inv_items[inv_code] 
                     else:
                         inv_items[matched_po_code] = inv_items.pop(inv_code)
@@ -159,7 +139,6 @@ def run_three_way_match(po_number):
         ui_results = []
         
         invoice_id = list(inv_items.values())[0]["invoice_id"]
-
         cursor.execute("DELETE FROM matching_results WHERE invoice_id = %s", (invoice_id,))
 
         all_codes = set(po_items.keys()) | set(grn_items.keys()) | set(inv_items.keys())
@@ -169,29 +148,36 @@ def run_three_way_match(po_number):
             grn = grn_items.get(code)
             inv = inv_items.get(code)
 
+            # Skip items that are just on the PO but haven't been billed or delivered yet
             if po and not grn and not inv:
                 continue
 
             po_qty = po["qty"] if po else 0.0
             po_price = po["price"] if po else 0.0
+            # Grab the conversion factor (default to 1.0 if not found)
+            conversion_factor = po["conversion_factor"] if po else 1.0 
             
             grn_qty = grn["qty"] if grn else 0.0
             grn_number = grn["grn_number"] if grn else None
             
-            inv_qty = inv["qty"] if inv else 0.0
+            raw_inv_qty = inv["qty"] if inv else 0.0
             inv_price = inv["price"] if inv else 0.0
             inv_item_id = inv["invoice_item_id"] if inv else None
 
+            # --- THE MAGIC HAPPENS HERE ---
+            # FIX 2: Normalize ONLY the quantity (Cases to Cans), leave the price alone!
+            normalized_inv_qty = raw_inv_qty * conversion_factor
 
-            qty_variance = round(inv_qty - grn_qty, 2)
+            # Qty Variance: Compare against GRN
+            qty_variance = round(normalized_inv_qty - grn_qty, 2)
             is_qty_match = True if qty_variance <= 0 else False
 
-
+            # Price Variance: Compare direct invoice case price against PO case price
             price_variance = round(inv_price - po_price, 4)
-            is_price_match = True if price_variance <= 0.05 else False # 0.05 tolerance for rounding
-
+            is_price_match = True if price_variance <= 0.05 else False
+            
             if not po:
-                print("inv",inv) 
+                print("inv", inv) 
                 status = "not_on_po" 
                 issue_summary = "Item billed or delivered but never ordered."
             elif not inv:
@@ -217,20 +203,17 @@ def run_three_way_match(po_number):
                 "product_code": code,
                 "po_qty": po_qty,
                 "grn_qty": grn_qty,
-                "invoice_qty": inv_qty,
+                "invoice_qty": normalized_inv_qty,
                 "qty_variance": qty_variance,
                 "is_qty_match": is_qty_match,
                 "po_price": po_price,
-                "invoice_price": inv_price,
+                "invoice_price": inv_price, # Ensures raw inv_price is sent to the DB and UI
                 "price_variance": price_variance,
                 "is_price_match": is_price_match,
                 "status": status,
                 "issue_summary": issue_summary
             }
             ui_results.append(result_row)
-
-
-            
 
             cursor.execute("""
                 INSERT INTO matching_results (
@@ -260,6 +243,7 @@ def run_three_way_match(po_number):
         cursor.close()
         conn.close()
 
+
 def get_po_list():
     """Return list of available PO numbers from po_headers."""
     conn = get_connection() 
@@ -286,7 +270,6 @@ def get_po_list():
 def get_po_items(po_number):
     """
     Returns the specific line items ordered for a given PO Number.
-    (This is the completed version of your broken function).
     """
     conn = get_connection()
     cursor = conn.cursor()
