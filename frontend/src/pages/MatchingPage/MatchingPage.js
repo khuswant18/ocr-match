@@ -57,7 +57,7 @@ const COLUMNS = [
         <span
           style={{ color: val > 0 ? "#d32f2f" : "#2e7d32", fontWeight: "bold" }}
         >
-          {val > 0 ? `+${val}` : val}
+          {val > 0 ? `+{val}` : val}
         </span>
       );
     },
@@ -89,7 +89,7 @@ const COLUMNS = [
       if (!val || Math.abs(val) <= 0.05) return "-"; // Ignoring tiny rounding errors
       return (
         <span style={{ color: "#d32f2f", fontWeight: "bold" }}>
-          {val > 0 ? `+$${val.toFixed(2)}` : `-$${Math.abs(val).toFixed(2)}`}
+          {val > 0 ? `+${val.toFixed(2)}` : `-${Math.abs(val).toFixed(2)}`}
         </span>
       );
     },
@@ -177,8 +177,6 @@ const MatchingPage = () => {
       if (res.data.error) {
         setError(res.data.error);
       } else {
-        // THE FIX: Just set the perfectly formatted array from the backend!
-        // No loops, no math required on the frontend anymore.
         setResult(res.data.matches || []);
         setRawPoItems(res.data.raw_po_items || []);
         setRawInvItems(res.data.raw_inv_items || []);
@@ -404,7 +402,7 @@ const MatchingPage = () => {
               </Paper>
             )}
 
-            {/* RAW PO TABLE */}
+
             {rawPoItems && rawPoItems.length > 0 && (
               <Paper
                 className={classes.tableContainer}
@@ -428,7 +426,7 @@ const MatchingPage = () => {
               </Paper>
             )}
 
-            {/* RAW INVOICE TABLE */}
+
             {rawInvItems && rawInvItems.length > 0 && (
               <Paper
                 className={classes.tableContainer}
@@ -452,7 +450,7 @@ const MatchingPage = () => {
               </Paper>
             )}
 
-            {/* RAW GRN TABLE */}
+
             {rawGrnItems && rawGrnItems.length > 0 && (
               <Paper
                 className={classes.tableContainer}
