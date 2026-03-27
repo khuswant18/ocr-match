@@ -152,7 +152,6 @@ const MatchingPage = () => {
     const fetchPoList = async () => {
       try {
         const res = await httpRequest.get(`${BACKEND_URL}/api/match/po-list`);
-        console.log("res1", res.data);
         setPoList(res.data);
       } catch (err) {
         console.error("Failed to fetch PO list:", err);
@@ -172,10 +171,9 @@ const MatchingPage = () => {
       const res = await httpRequest.get(
         `${BACKEND_URL}/api/match/${selectedPo}`,
       );
-      console.log("res2", res.data);
-
+      console.log("res.data.raw_inv_items",res.data.raw_inv_items) 
       if (res.data.error) {
-        setError(res.data.error);
+        setError(res.data.error); 
       } else {
         setResult(res.data.matches || []);
         setRawPoItems(res.data.raw_po_items || []);

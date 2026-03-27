@@ -1,7 +1,7 @@
 import sys
 import os
 
-# Add backend root so we can import the standalone mysql connector
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from mysql_db import get_connection
 
@@ -126,37 +126,40 @@ def run_three_way_match(po_number):
 
         import difflib
         
-        # Build dictionary of descriptions to PO codes
+
         po_desc_to_code = {data.get("desc", "").lower(): code for code, data in po_items.items() if data.get("desc")}
         
-        # Try to map unknown codes (fuzzy match by description or exact match by price)
+
         for inv_code, inv_data in list(inv_items.items()):
             if inv_code.startswith("unknown_"):
                 inv_desc = inv_data.get("desc", "").lower()
                 matched_po_code = None
                 
-                # 1. Fuzzy match by description
+
                 if inv_desc and po_desc_to_code:
                     matches = difflib.get_close_matches(inv_desc, po_desc_to_code.keys(), n=1, cutoff=0.4)
                     if matches:
                         matched_po_code = po_desc_to_code[matches[0]]
                 
-                # 2. Fallback exact match by unit price
+
                 if not matched_po_code:
                     prices_match = [c for c, p_data in po_items.items() if abs(p_data["price"] - inv_data["price"]) <= 0.05]
                     if len(prices_match) == 1:
                         matched_po_code = prices_match[0]
                 
-                if matched_po_code and matched_po_code not in inv_items:
-                    # Found a match and we haven't already mapped something to it!
-                    inv_items[matched_po_code] = inv_items.pop(inv_code)
+
+                if matched_po_code:
+                    if matched_po_code in inv_items:
+
+                        inv_items[matched_po_code]["qty"] += inv_data["qty"]
+                        del inv_items[inv_code] 
+                    else:
+                        inv_items[matched_po_code] = inv_items.pop(inv_code)
 
         ui_results = []
         
-        # Grab the invoice_id from the first invoice item to clear old runs
         invoice_id = list(inv_items.values())[0]["invoice_id"]
 
-        # Clear old matching results for this invoice before running a new batch
         cursor.execute("DELETE FROM matching_results WHERE invoice_id = %s", (invoice_id,))
 
         all_codes = set(po_items.keys()) | set(grn_items.keys()) | set(inv_items.keys())
@@ -166,7 +169,6 @@ def run_three_way_match(po_number):
             grn = grn_items.get(code)
             inv = inv_items.get(code)
 
-            # Skip items that are just on the PO but haven't been billed or delivered yet
             if po and not grn and not inv:
                 continue
 
@@ -180,22 +182,23 @@ def run_three_way_match(po_number):
             inv_price = inv["price"] if inv else 0.0
             inv_item_id = inv["invoice_item_id"] if inv else None
 
-            # Qty Variance: Positive means vendor overbilled compared to GRN
+
             qty_variance = round(inv_qty - grn_qty, 2)
             is_qty_match = True if qty_variance <= 0 else False
 
-            # Price Variance: Positive means vendor overpriced compared to PO
+
             price_variance = round(inv_price - po_price, 4)
             is_price_match = True if price_variance <= 0.05 else False # 0.05 tolerance for rounding
 
             if not po:
-                status = "not_on_po"
+                print("inv",inv) 
+                status = "not_on_po" 
                 issue_summary = "Item billed or delivered but never ordered."
             elif not inv:
                 status = "not_billed"
                 issue_summary = "Item delivered but not on vendor invoice."
             elif is_qty_match and is_price_match:
-                status = "matched"
+                status = "matched" 
                 issue_summary = "Perfect Match."
             else:
                 status = "mismatch"
