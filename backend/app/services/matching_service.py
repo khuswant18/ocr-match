@@ -132,7 +132,8 @@ def run_three_way_match(po_number):
                 if matched_po_code:
                     if matched_po_code in inv_items:
                         # FIX 1: Throw away the ghost OCR duplicate, DO NOT add the quantities
-                        del inv_items[inv_code] 
+                        pass
+
                     else:
                         inv_items[matched_po_code] = inv_items.pop(inv_code)
 
@@ -300,6 +301,30 @@ def get_po_items(po_number):
             }
             for r in rows
         ]
+    finally:
+        cursor.close()
+        conn.close()
+
+def update_invoice_item_code(invoice_item_id, new_product_code):
+    """
+    Updates the product_code of an invoice item, effectively manual matching it.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            UPDATE invoice_items 
+            SET product_code = %s 
+            WHERE id = %s
+            """,
+            (new_product_code, invoice_item_id)
+        )
+        conn.commit()
+        return {"status": "success"}
+    except Exception as e:
+        conn.rollback()
+        return {"error": str(e)}
     finally:
         cursor.close()
         conn.close()
