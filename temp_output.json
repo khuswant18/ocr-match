@@ -1,0 +1,403 @@
+200
+{
+  "matches": [
+    {
+      "grn_number": "3254928",
+      "grn_qty": 30.0,
+      "invoice_id": 15,
+      "invoice_item_id": 92,
+      "invoice_price": 1520.0,
+      "invoice_qty": 30.0,
+      "is_price_match": false,
+      "is_qty_match": true,
+      "issue_summary": "Overpriced by 162.86 per unit",
+      "po_number": "4010510",
+      "po_price": 1357.14,
+      "po_qty": 30.0,
+      "price_variance": 162.86,
+      "product_code": "2738",
+      "qty_variance": 0.0,
+      "status": "mismatch"
+    },
+    {
+      "grn_number": "3254928",
+      "grn_qty": 20.0,
+      "invoice_id": 15,
+      "invoice_item_id": 93,
+      "invoice_price": 1520.0,
+      "invoice_qty": 20.0,
+      "is_price_match": false,
+      "is_qty_match": true,
+      "issue_summary": "Overpriced by 162.86 per unit",
+      "po_number": "4010510",
+      "po_price": 1357.14,
+      "po_qty": 20.0,
+      "price_variance": 162.86,
+      "product_code": "2740",
+      "qty_variance": 0.0,
+      "status": "mismatch"
+    },
+    {
+      "grn_number": "3254928",
+      "grn_qty": 12.0,
+      "invoice_id": 15,
+      "invoice_item_id": 94,
+      "invoice_price": 3144.0,
+      "invoice_qty": 12.0,
+      "is_price_match": false,
+      "is_qty_match": true,
+      "issue_summary": "Overpriced by 336.86 per unit",
+      "po_number": "4010510",
+      "po_price": 2807.14,
+      "po_qty": 12.0,
+      "price_variance": 336.86,
+      "product_code": "2747",
+      "qty_variance": 0.0,
+      "status": "mismatch"
+    },
+    {
+      "grn_number": "3254928",
+      "grn_qty": 20.0,
+      "invoice_id": 15,
+      "invoice_item_id": 95,
+      "invoice_price": 2210.0,
+      "invoice_qty": 20.0,
+      "is_price_match": false,
+      "is_qty_match": true,
+      "issue_summary": "Overpriced by 236.79 per unit",
+      "po_number": "4010510",
+      "po_price": 1973.21,
+      "po_qty": 20.0,
+      "price_variance": 236.79,
+      "product_code": "2751",
+      "qty_variance": 0.0,
+      "status": "mismatch"
+    },
+    {
+      "grn_number": "3254928",
+      "grn_qty": 10.0,
+      "invoice_id": 15,
+      "invoice_item_id": null,
+      "invoice_price": 0.0,
+      "invoice_qty": 0.0,
+      "is_price_match": true,
+      "is_qty_match": true,
+      "issue_summary": "Item delivered but not on vendor invoice.",
+      "po_number": "4010510",
+      "po_price": 1946.43,
+      "po_qty": 10.0,
+      "price_variance": -1946.43,
+      "product_code": "2753",
+      "qty_variance": -10.0,
+      "status": "not_billed"
+    },
+    {
+      "grn_number": "3254928",
+      "grn_qty": 20.0,
+      "invoice_id": 15,
+      "invoice_item_id": 97,
+      "invoice_price": 2290.0,
+      "invoice_qty": 20.0,
+      "is_price_match": false,
+      "is_qty_match": true,
+      "issue_summary": "Overpriced by 245.36 per unit",
+      "po_number": "4010510",
+      "po_price": 2044.64,
+      "po_qty": 20.0,
+      "price_variance": 245.36,
+      "product_code": "2755",
+      "qty_variance": 0.0,
+      "status": "mismatch"
+    },
+    {
+      "grn_number": "3254928",
+      "grn_qty": 0.0,
+      "invoice_id": 15,
+      "invoice_item_id": null,
+      "invoice_price": 0.0,
+      "invoice_qty": 0.0,
+      "is_price_match": true,
+      "is_qty_match": true,
+      "issue_summary": "Item delivered but not on vendor invoice.",
+      "po_number": "4010510",
+      "po_price": 1669.64,
+      "po_qty": 10.0,
+      "price_variance": -1669.64,
+      "product_code": "2756",
+      "qty_variance": 0.0,
+      "status": "not_billed"
+    },
+    {
+      "grn_number": "3254928",
+      "grn_qty": 30.0,
+      "invoice_id": 15,
+      "invoice_item_id": 98,
+      "invoice_price": 3150.0,
+      "invoice_qty": 30.0,
+      "is_price_match": false,
+      "is_qty_match": true,
+      "issue_summary": "Overpriced by 337.5 per unit",
+      "po_number": "4010510",
+      "po_price": 2812.5,
+      "po_qty": 30.0,
+      "price_variance": 337.5,
+      "product_code": "2759",
+      "qty_variance": 0.0,
+      "status": "mismatch"
+    },
+    {
+      "grn_number": "3254928",
+      "grn_qty": 10.0,
+      "invoice_id": 15,
+      "invoice_item_id": 99,
+      "invoice_price": 3400.0,
+      "invoice_qty": 10.0,
+      "is_price_match": false,
+      "is_qty_match": true,
+      "issue_summary": "Overpriced by 364.29 per unit",
+      "po_number": "4010510",
+      "po_price": 3035.71,
+      "po_qty": 10.0,
+      "price_variance": 364.29,
+      "product_code": "2765",
+      "qty_variance": 0.0,
+      "status": "mismatch"
+    },
+    {
+      "grn_number": "3254928",
+      "grn_qty": 10.0,
+      "invoice_id": 15,
+      "invoice_item_id": 100,
+      "invoice_price": 2300.0,
+      "invoice_qty": 10.0,
+      "is_price_match": false,
+      "is_qty_match": true,
+      "issue_summary": "Overpriced by 246.43 per unit",
+      "po_number": "4010510",
+      "po_price": 2053.57,
+      "po_qty": 10.0,
+      "price_variance": 246.43,
+      "product_code": "3537",
+      "qty_variance": 0.0,
+      "status": "mismatch"
+    },
+    {
+      "grn_number": null,
+      "grn_qty": 0.0,
+      "invoice_id": 15,
+      "invoice_item_id": 96,
+      "invoice_price": 2180.0,
+      "invoice_qty": 1.0,
+      "is_price_match": false,
+      "is_qty_match": false,
+      "issue_summary": "Item billed or delivered but never ordered.",
+      "po_number": "4010510",
+      "po_price": 0.0,
+      "po_qty": 0.0,
+      "price_variance": 2180.0,
+      "product_code": "unknown_4",
+      "qty_variance": 1.0,
+      "status": "not_on_po"
+    }
+  ],
+  "raw_grn_items": [
+    {
+      "grn_number": "3254928",
+      "product_code": "2738",
+      "qty": 30.0
+    },
+    {
+      "grn_number": "3254928",
+      "product_code": "2740",
+      "qty": 20.0
+    },
+    {
+      "grn_number": "3254928",
+      "product_code": "2747",
+      "qty": 12.0
+    },
+    {
+      "grn_number": "3254928",
+      "product_code": "2751",
+      "qty": 20.0
+    },
+    {
+      "grn_number": "3254928",
+      "product_code": "2753",
+      "qty": 10.0
+    },
+    {
+      "grn_number": "3254928",
+      "product_code": "2755",
+      "qty": 20.0
+    },
+    {
+      "grn_number": "3254928",
+      "product_code": "2756",
+      "qty": 0.0
+    },
+    {
+      "grn_number": "3254928",
+      "product_code": "2759",
+      "qty": 30.0
+    },
+    {
+      "grn_number": "3254928",
+      "product_code": "2765",
+      "qty": 10.0
+    },
+    {
+      "grn_number": "3254928",
+      "product_code": "3537",
+      "qty": 10.0
+    }
+  ],
+  "raw_inv_items": [
+    {
+      "desc": "Happy Booster Hotdog Regular 2k (Premium Hotdog/5",
+      "invoice_id": 15,
+      "invoice_item_id": 95,
+      "price": 2210.0,
+      "product_code": "2751",
+      "qty": 2.0
+    },
+    {
+      "desc": "Happy Booster Hotdog Jumbo 4.52k(Premium Hotdog/5",
+      "invoice_id": 15,
+      "invoice_item_id": 96,
+      "price": 2180.0,
+      "product_code": "unknown_4",
+      "qty": 1.0
+    },
+    {
+      "desc": "CHAMPION Hotdog Jumbo 42k/5",
+      "invoice_id": 15,
+      "invoice_item_id": 92,
+      "price": 1520.0,
+      "product_code": "2738",
+      "qty": 3.0
+    },
+    {
+      "desc": "CHAMPION Hotdog Regular 2k 5",
+      "invoice_id": 15,
+      "invoice_item_id": 93,
+      "price": 1520.0,
+      "product_code": "2740",
+      "qty": 2.0
+    },
+    {
+      "desc": "EL RANCHO Spiced Ham 2k/6",
+      "invoice_id": 15,
+      "invoice_item_id": 94,
+      "price": 3144.0,
+      "product_code": "2747",
+      "qty": 1.0
+    },
+    {
+      "desc": "VIRGINIA Cheesedog Jumbo 4.52k /5",
+      "invoice_id": 15,
+      "invoice_item_id": 97,
+      "price": 2290.0,
+      "product_code": "2755",
+      "qty": 2.0
+    },
+    {
+      "desc": "VIRGINIA Pork Tocino 1k/10",
+      "invoice_id": 15,
+      "invoice_item_id": 98,
+      "price": 3150.0,
+      "product_code": "2759",
+      "qty": 3.0
+    },
+    {
+      "desc": "VIRGINIA Chorizo de Cebu 2k /5",
+      "invoice_id": 15,
+      "invoice_item_id": 99,
+      "price": 3400.0,
+      "product_code": "2765",
+      "qty": 1.0
+    },
+    {
+      "desc": "VIRGINIA Hotdog Balls 2k",
+      "invoice_id": 15,
+      "invoice_item_id": 100,
+      "price": 2300.0,
+      "product_code": "3537",
+      "qty": 1.0
+    }
+  ],
+  "raw_po_items": [
+    {
+      "conversion_factor": 10.0,
+      "desc": "CHAMPION HDOG JMBO LADLAD 1KG",
+      "price": 1357.14,
+      "product_code": "2738",
+      "qty": 30.0
+    },
+    {
+      "conversion_factor": 10.0,
+      "desc": "CHAMPION HDOG REG LDLD 1KG",
+      "price": 1357.14,
+      "product_code": "2740",
+      "qty": 20.0
+    },
+    {
+      "conversion_factor": 12.0,
+      "desc": "EL RANCHO SPICED HAM LDLD 1KG",
+      "price": 2807.14,
+      "product_code": "2747",
+      "qty": 12.0
+    },
+    {
+      "conversion_factor": 10.0,
+      "desc": "VIRGINIA PRM HDOG RG LDLD 1KG",
+      "price": 1973.21,
+      "product_code": "2751",
+      "qty": 20.0
+    },
+    {
+      "conversion_factor": 10.0,
+      "desc": "VIRGINIA PRM HDOG JMB LDLD 1KG",
+      "price": 1946.43,
+      "product_code": "2753",
+      "qty": 10.0
+    },
+    {
+      "conversion_factor": 10.0,
+      "desc": "VIRGINIA CHEESEDOG LDLD JUM1KG",
+      "price": 2044.64,
+      "product_code": "2755",
+      "qty": 20.0
+    },
+    {
+      "conversion_factor": 10.0,
+      "desc": "VIRGINIA CHKN HDG JMB LDLD 1KG",
+      "price": 1669.64,
+      "product_code": "2756",
+      "qty": 10.0
+    },
+    {
+      "conversion_factor": 10.0,
+      "desc": "VIRGINIA PORK TOCINO LDLD 1KG",
+      "price": 2812.5,
+      "product_code": "2759",
+      "qty": 30.0
+    },
+    {
+      "conversion_factor": 10.0,
+      "desc": "VIRGINIA CHRZO D CEBU LDLD 1KG",
+      "price": 3035.71,
+      "product_code": "2765",
+      "qty": 10.0
+    },
+    {
+      "conversion_factor": 10.0,
+      "desc": "VIRGINIA HOTDOG BALLS LDLD 1KG",
+      "price": 2053.57,
+      "product_code": "3537",
+      "qty": 10.0
+    }
+  ],
+  "status": "success"
+}
+

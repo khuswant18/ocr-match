@@ -7,6 +7,9 @@ import {
   Paper,
   Typography,
   Chip,
+  Select,
+  MenuItem,
+  FormControl,
 } from "@mui/material";
 import { DataGrid } from "@mui/x-data-grid";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
@@ -21,8 +24,35 @@ const BACKEND_URL =
   process.env.REACT_APP_BACKEND_URL || "http://localhost:5001";
 
 // UPGRADED COLUMNS: Now mapping to the exact variance fields from the backend
-const COLUMNS = [
-  { field: "product_code", headerName: "Product Code", flex: 1, minWidth: 120 },
+const getAuditColumns = (poOptions = [], handleCodeChange) => [
+  { 
+    field: "product_code", 
+    headerName: "Product Code", 
+    flex: 1.2, 
+    minWidth: 150,
+    renderCell: (params) => {
+      const val = params.value || "";
+      if (val.startsWith("unknown_")) {
+        return (
+          <FormControl fullWidth size="small" variant="standard" sx={{ mt: 0.5 }}>
+            <Select
+              value=""
+              displayEmpty
+              onChange={(e) => handleCodeChange(params.row.invoice_item_id, e.target.value)}
+            >
+              <MenuItem value="" disabled>Select PO Item...</MenuItem>
+              {poOptions.map((opt) => (
+                <MenuItem key={opt.product_code} value={opt.product_code}>
+                  {opt.product_code} - {opt.desc}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        );
+      }
+      return val;
+    }
+  },
   {
     field: "po_qty",
     headerName: "PO Qty",
@@ -60,8 +90,7 @@ const COLUMNS = [
           {val > 0 ? `+{val}` : val}
         </span>
       );
-    },
-  },
+    },  },
   {
     field: "po_price",
     headerName: "PO Price",
@@ -122,8 +151,35 @@ const RAW_PO_COLUMNS = [
   { field: "desc", headerName: "Description", flex: 2, minWidth: 250 },
 ];
 
-const RAW_INV_COLUMNS = [
-  { field: "product_code", headerName: "Product Code", flex: 1, minWidth: 120 },
+const getInvColumns = (poOptions = [], handleCodeChange) => [
+  { 
+    field: "product_code", 
+    headerName: "Product Code", 
+    flex: 1.2, 
+    minWidth: 150,
+    renderCell: (params) => {
+      const val = params.value || "";
+      if (val.startsWith("unknown_")) {
+        return (
+          <FormControl fullWidth size="small" variant="standard" sx={{ mt: 0.5 }}>
+            <Select
+              value=""
+              displayEmpty
+              onChange={(e) => handleCodeChange(params.row.invoice_item_id, e.target.value)}
+            >
+              <MenuItem value="" disabled>Select PO Item...</MenuItem>
+              {poOptions.map((opt) => (
+                <MenuItem key={opt.product_code} value={opt.product_code}>
+                  {opt.product_code} - {opt.desc}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        );
+      }
+      return val;
+    }
+  },
   { field: "desc", headerName: "Item Name / Description", flex: 2, minWidth: 200 },
   { field: "qty", headerName: "Invoice Qty", flex: 0.8, minWidth: 100, type: "number" },
   { field: "price", headerName: "Invoice Price", flex: 0.8, minWidth: 100, type: "number", valueFormatter: (params) => params.value?.toFixed(2) },
@@ -152,6 +208,7 @@ const MatchingPage = () => {
     const fetchPoList = async () => {
       try {
         const res = await httpRequest.get(`${BACKEND_URL}/api/match/po-list`);
+        console.log("res1", res.data);
         setPoList(res.data);
       } catch (err) {
         console.error("Failed to fetch PO list:", err);
@@ -171,9 +228,10 @@ const MatchingPage = () => {
       const res = await httpRequest.get(
         `${BACKEND_URL}/api/match/${selectedPo}`,
       );
-      console.log("res.data.raw_inv_items",res.data.raw_inv_items) 
+      console.log("res2", res.data);
+
       if (res.data.error) {
-        setError(res.data.error); 
+        setError(res.data.error);
       } else {
         setResult(res.data.matches || []);
         setRawPoItems(res.data.raw_po_items || []);
@@ -187,6 +245,27 @@ const MatchingPage = () => {
       setLoading(false);
     }
   }, [selectedPo]);
+
+  const handleProductCodeChange = async (invoiceItemId, newProductCode) => {
+    if (!invoiceItemId || !newProductCode) return;
+    setLoading(true);
+    try {
+      const res = await httpRequest.post(`${BACKEND_URL}/api/match/update-code`, {
+        invoice_item_id: invoiceItemId,
+        product_code: newProductCode,
+      });
+      if (res.data.status === "success") {
+        // Re-run match to get updated UI
+        await runMatch();
+      } else {
+        setError(res.data.error || "Failed to update mapping");
+        setLoading(false);
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+      setLoading(false);
+    }
+  };
 
   const totalItems = result ? result.length : 0;
   const priceErrors = result
@@ -391,7 +470,7 @@ const MatchingPage = () => {
                 <DataGrid
                   // Pass the flat result array directly. Add a unique 'id' for the DataGrid.
                   rows={result.map((row, index) => ({ id: index, ...row }))}
-                  columns={COLUMNS}
+                  columns={getAuditColumns(rawPoItems || [], handleProductCodeChange)}
                   pageSize={10}
                   rowsPerPageOptions={[10, 25, 50]}
                   autoHeight
@@ -439,7 +518,7 @@ const MatchingPage = () => {
                 </Typography>
                 <DataGrid
                   rows={rawInvItems.map((row, index) => ({ id: index, ...row }))}
-                  columns={RAW_INV_COLUMNS}
+                  columns={getInvColumns(rawPoItems || [], handleProductCodeChange)}
                   pageSize={10}
                   rowsPerPageOptions={[10, 25, 50]}
                   autoHeight

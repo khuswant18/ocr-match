@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 import google.generativeai as genai
@@ -6,7 +7,10 @@ import re
 logger = logging.getLogger(__name__)
 
 # Configure Gemini with the provided API key
-genai.configure(api_key="AIzaSyCQiDqS-kdqBJJuHAGW_9RsOJeVTQPzDc4")
+api_key = os.environ.get("GEMINI_API_KEY", "AIzaSyCQiDqS-kdqBJJuHAGW_9RsOJeVTQPzDc4")
+if not api_key:
+    logger.error("CRITICAL: GEMINI_API_KEY environment variable is missing.")
+genai.configure(api_key=api_key)
 
 def parse_with_gemini(ocr_text: str) -> dict: 
     """ 
@@ -25,8 +29,9 @@ EXTRACTION RULES:
    - "Total", "Grand Total" -> total_amount
    - "TIN" -> tin
 3. Extract items carefully: group quantity, unit price, total correctly.
+   CRITICAL: DO NOT SKIP items if their description contains special characters like parentheses (), quotes "", or dashes -. Extract the exact, full description.
 4. Normalize numbers: "1,660.00" -> 1660.00 (remove commas, use dot for decimals).
-5. Ignore signatures and legal text. 
+5. Ignore signatures and legal text (e.g., "The buyer agrees that...", "BIR Authority..."). 
 6. If uncertain, return null or empty string.
 
 OUTPUT FORMAT (STRICT JSON ONLY): 
