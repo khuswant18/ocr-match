@@ -69,8 +69,9 @@ def _fetch_invoice_items(cursor, po_number):
         FROM invoice_items ii
         JOIN invoices i ON i.id = ii.invoice_id
         WHERE i.po_number = %s
+          AND i.id = (SELECT MAX(id) FROM invoices WHERE po_number = %s)
         """,
-        (str(po_number),),
+        (str(po_number), str(po_number)),
     )
     items = {}
     unknown_count = 0
