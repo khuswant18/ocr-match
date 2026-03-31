@@ -1,7 +1,6 @@
 import sys
 import os
 
-# Add backend root so we can import the standalone mysql connector
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from mysql_db import get_connection
 
@@ -132,7 +131,7 @@ def run_three_way_match(po_number):
                 
                 if matched_po_code:
                     if matched_po_code in inv_items:
-                        # FIX 1: Throw away the ghost OCR duplicate, DO NOT add the quantities
+                        # Throw away the ghost OCR duplicate, DO NOT add the quantities
                         pass
 
                     else:
@@ -166,8 +165,7 @@ def run_three_way_match(po_number):
             inv_price = inv["price"] if inv else 0.0
             inv_item_id = inv["invoice_item_id"] if inv else None
 
-            # --- THE MAGIC HAPPENS HERE ---
-            # FIX 2: Normalize ONLY the quantity (Cases to Cans), leave the price alone!
+            # Normalize ONLY the quantity (Cases to Cans), leave the price alone!
             normalized_inv_qty = raw_inv_qty * conversion_factor
 
             # Qty Variance: Compare against GRN
