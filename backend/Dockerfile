@@ -7,7 +7,9 @@ ENV PYTHONUNBUFFERED 1
 
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
-    python3-opencv
+    python3-opencv \
+    gcc \
+    g++
 
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -20,6 +22,9 @@ COPY ./requirements.txt /app/requirements.txt
 RUN pip install -r requirements.txt
 
 COPY ./tessdata/slk.traineddata $TESSDATA_PREFIX
+
+# Pre-download the fastembed model so it's baked into the image (~130MB ONNX, no PyTorch/CUDA)
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
 
 COPY . /app
 

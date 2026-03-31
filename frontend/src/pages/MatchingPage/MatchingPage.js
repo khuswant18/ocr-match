@@ -87,7 +87,7 @@ const getAuditColumns = (poOptions = [], handleCodeChange) => [
         <span
           style={{ color: val > 0 ? "#d32f2f" : "#2e7d32", fontWeight: "bold" }}
         >
-          {val > 0 ? `+{val}` : val}
+          {val > 0 ? `+${val}` : val}
         </span>
       );
     },  },
@@ -133,6 +133,10 @@ const getAuditColumns = (poOptions = [], handleCodeChange) => [
         return <Chip label="Matched" color="success" size="small" />;
       if (params.value === "not_on_po")
         return <Chip label="Not on PO" color="warning" size="small" />;
+      if (params.value === "not_billed")
+        return <Chip label="Not Billed" color="info" size="small" />;
+      if (params.value === "unmatched")
+        return <Chip label="Unmatched" color="default" size="small" />;
       return <Chip label="Mismatch" color="error" size="small" />;
     },
   },
