@@ -16,27 +16,32 @@ def parse_with_gemini(ocr_text: str) -> dict:
     """ 
     Sends the noisy OCR text to Google Gemini model to extract structured JSON.
     """
-    prompt = f"""You are an AI system specialized in extracting structured data from OCR text of Indian invoices. 
-The input is noisy OCR output from English invoices. The text may contain spelling mistakes, broken formatting, incorrect alignment, and irrelevant text.
+    prompt = f"""You are an AI system specialized in extracting structured data from OCR text of invoices.
+The input is noisy OCR output. It may contain spelling mistakes, broken formatting, incorrect alignment, and irrelevant text.
 
 EXTRACTION RULES:
-1. Fix OCR errors automatically (e.g. "DELVERY" -> "DELIVERY").
-2. Understand Indian keywords: 
+1. Fix OCR errors automatically (e.g. "DELVERY" -> "DELIVERY", "lnvoice" -> "Invoice").
+2. Understand keywords:
    - "inv", "inv no.", "Invoice No", "invoice number" -> invoice_number
-   - "Invoice Date", "Date" -> invoice_date 
-   - "PO number", "p.o no", "po no", "PO", "po" -> po_number 
-   - "Due Date" -> due_date 
+   - "Invoice Date", "Date" -> invoice_date
+   - "PO number", "p.o no", "po no", "PO", "po" -> po_number (IMPORTANT: extract the EXACT PO number as printed, including all digits)
+   - "Due Date" -> due_date
    - "Total", "Grand Total" -> total_amount
-   - "TIN" -> tin
-3. Extract items carefully: group quantity, unit price, total correctly.
-   CRITICAL: DO NOT SKIP items if their description contains special characters like parentheses (), quotes "", or dashes -. Extract the exact, full description.
+   - "TIN", "VAT Reg TIN" -> tin
+3. ITEM EXTRACTION — THIS IS CRITICAL:
+   a. Extract the FULL product description exactly as printed. Include brand names, sizes, pack info, parenthetical notes like "(Premium Hotdog)".
+      DO NOT SKIP items because of special characters like parentheses (), quotes "", or dashes -.
+   b. The "quantity" field must be the NUMBER OF CASES/PACKS/UNITS ordered (e.g., 3, 2, 1), NOT the total individual pieces.
+      Example: "CHAMPION Hotdog Jumbo 2k/5 .... 3 .... 1,520.00 .... 4,560.00" → quantity=3, unit_price=1520.00, total_price=4560.00
+   c. If a "UOM" (unit of measure) column exists, extract it (e.g. "CS", "PC", "KG", "CASE", "BOX", "PACK"). If not present, return "".
+   d. If a product/item code column exists (numeric codes like "2738", "2751"), extract it as "product_code". If not present, return "".
 4. Normalize numbers: "1,660.00" -> 1660.00 (remove commas, use dot for decimals).
-5. Ignore signatures and legal text (e.g., "The buyer agrees that...", "BIR Authority..."). 
-6. If uncertain, return null or empty string.
+5. Ignore signatures, legal text, and terms & conditions.
+6. If uncertain about a field, return null or empty string.
 
-OUTPUT FORMAT (STRICT JSON ONLY): 
+OUTPUT FORMAT (STRICT JSON ONLY):
 {{
-  "invoice_number": "", 
+  "invoice_number": "",
   "po_number": "",
   "invoice_date": "",
   "due_date": "",
@@ -44,14 +49,14 @@ OUTPUT FORMAT (STRICT JSON ONLY):
   "buyer": {{ "name": "", "address": "", "tin": "" }},
   "payment_method": "",
   "bank_details": {{ "account_number": "", "ifsc": "", "bank_name": "" }},
-  "items": [ {{ "description": "", "quantity": 0, "unit_price": 0, "total_price": 0 }} ],
-  "financials": {{ "subtotal": 0, "cgst": 0, "sgst": 0, "igst": 0, "total_amount": 0 }}
+  "items": [ {{ "product_code": "", "description": "", "quantity": 0, "uom": "", "unit_price": 0, "total_price": 0 }} ],
+  "financials": {{ "subtotal": 0, "cgst": 0, "sgst": 0, "igst": 0, "discount": 0, "total_amount": 0 }}
 }}
 
 OCR TEXT:
 {ocr_text}
- 
-FINAL RULE: Return ONLY valid JSON matching the schema. No explanation. 
+
+FINAL RULE: Return ONLY valid JSON matching the schema above. No explanation, no markdown, no extra text.
 """
 
     try:
