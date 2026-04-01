@@ -17,6 +17,15 @@ CREATE TABLE invoices (
 
     raw_json JSON,                     -- full OCR output
 
+    -- OCR Audit Trail
+    ocr_text TEXT,
+    pdf_file_path VARCHAR(500),
+    img_file_path VARCHAR(500),
+    ocr_confidence DECIMAL(5, 2),
+    recognition_time DECIMAL(8, 4),
+    parsing_time DECIMAL(8, 4),
+    ocr_method VARCHAR(50),
+
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ); 
 

@@ -3,6 +3,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from mysql_db import get_connection
+from app.services.vector_service import index_po_items, find_ranked_candidates, RELAXED_THRESHOLD
 
 
 def _fetch_po_items(cursor, po_number):
@@ -30,22 +31,39 @@ def _fetch_po_items(cursor, po_number):
 
 
 def _fetch_grn_items(cursor, po_number):
+    # pol_grn.po_trans_no is numeric — try int first, fall back to string match
+    po_str = str(po_number).strip()
     try:
-        grn_po_number = int(str(po_number).strip())
+        grn_po_number = int(po_str)
     except ValueError:
-        grn_po_number = -1
+        grn_po_number = None
 
-    cursor.execute(
-        """
-        SELECT product_code,
-               SUM(vo_tot_qty) AS qty,
-               MAX(vo_trans_no) AS grn_number
-        FROM pol_grn
-        WHERE po_trans_no = %s
-        GROUP BY product_code
-        """,
-        (grn_po_number,),
-    )
+    # Try both numeric and string match to be safe
+    if grn_po_number is not None:
+        cursor.execute(
+            """
+            SELECT product_code,
+                   SUM(vo_tot_qty) AS qty,
+                   MAX(vo_trans_no) AS grn_number
+            FROM pol_grn
+            WHERE po_trans_no = %s
+            GROUP BY product_code
+            """,
+            (grn_po_number,),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT product_code,
+                   SUM(vo_tot_qty) AS qty,
+                   MAX(vo_trans_no) AS grn_number
+            FROM pol_grn
+            WHERE CAST(po_trans_no AS CHAR) = %s
+            GROUP BY product_code
+            """,
+            (po_str,),
+        )
+
     items = {}
     for r in cursor.fetchall():
         items[str(r[0]).strip()] = {
@@ -55,15 +73,22 @@ def _fetch_grn_items(cursor, po_number):
     return items
 
 
-def _fetch_invoice_items(cursor, po_number):
-    """Fetch invoice items using NORMALIZED quantity and grabs IDs."""
+def _fetch_invoice_items(cursor, po_number, po_items):
+    """
+    Fetch invoice items for a PO, accumulating quantities across multiple invoices.
+    A PO can have several partial invoices — we SUM their quantities per product_code,
+    mirroring how the GRN query does SUM(vo_tot_qty) GROUP BY product_code.
+
+    Also normalises product_code format to match po_items keys (strip whitespace,
+    leading zeros, case differences) and validates codes exist on the PO.
+    """
     cursor.execute(
         """
         SELECT ii.product_code,
-               ii.normalized_qty,      -- CRITICAL: Uses normalized_qty for accurate matching
+               ii.normalized_qty,
                ii.unit_price,
-               ii.id AS invoice_item_id,
-               i.id AS invoice_id,
+               ii.id  AS invoice_item_id,
+               i.id   AS invoice_id,
                ii.product_name
         FROM invoice_items ii
         JOIN invoices i ON i.id = ii.invoice_id
@@ -72,20 +97,54 @@ def _fetch_invoice_items(cursor, po_number):
         """,
         (str(po_number), str(po_number)),
     )
+
+    # Build a lookup for product code normalisation:
+    # Try the raw code, stripped code, code without leading zeros, etc.
+    _po_code_lookup: dict[str, str] = {}
+    for po_code in po_items:
+        canonical = po_code.strip()
+        _po_code_lookup[canonical] = canonical
+        _po_code_lookup[canonical.lower()] = canonical
+        _po_code_lookup[canonical.lstrip("0")] = canonical
+        # With zero-padding up to 6 digits
+        if canonical.isdigit():
+            _po_code_lookup[canonical.zfill(6)] = canonical
+
     items = {}
     unknown_count = 0
     for r in cursor.fetchall():
-        code = str(r[0] or "").strip()
+        raw_code = str(r[0] or "").strip()
+
+        # Try to resolve the invoice's product_code to a known PO code
+        code = ""
+        if raw_code:
+            code = _po_code_lookup.get(raw_code,
+                   _po_code_lookup.get(raw_code.lower(),
+                   _po_code_lookup.get(raw_code.lstrip("0"), "")))
+            if not code and raw_code.isdigit():
+                code = _po_code_lookup.get(raw_code.zfill(6), "")
+            if not code:
+                # Code exists but doesn't match any PO line — keep it as-is
+                # (will show as not_on_po later, which is informative)
+                code = raw_code
+
         if not code:
             unknown_count += 1
             code = f"unknown_{unknown_count}"
-        items[code] = {
-            "qty": float(r[1] or 0),
-            "price": float(r[2] or 0),
-            "invoice_item_id": int(r[3]),
-            "invoice_id": int(r[4]),
-            "desc": str(r[5] or "")
-        }
+
+        qty   = float(r[1] or 0)
+        price = float(r[2] or 0)
+
+        if code in items:
+            items[code]["qty"] += qty
+        else:
+            items[code] = {
+                "qty": qty,
+                "price": price,
+                "invoice_item_id": int(r[3]),
+                "invoice_id": int(r[4]),
+                "desc": str(r[5] or "")
+            }
     return items
 
 
@@ -99,8 +158,8 @@ def run_three_way_match(po_number):
 
     try:
         po_items = _fetch_po_items(cursor, po_number)
-        grn_items = _fetch_grn_items(cursor, po_number)  
-        inv_items = _fetch_invoice_items(cursor, po_number)
+        grn_items = _fetch_grn_items(cursor, po_number)
+        inv_items = _fetch_invoice_items(cursor, po_number, po_items)
         print("po_items", po_items)
         print("grn_items", grn_items)
         print("inv_items", inv_items) 
@@ -138,9 +197,11 @@ def run_three_way_match(po_number):
                         inv_items[matched_po_code] = inv_items.pop(inv_code)
 
         ui_results = []
-        
+
         invoice_id = list(inv_items.values())[0]["invoice_id"]
-        cursor.execute("DELETE FROM matching_results WHERE invoice_id = %s", (invoice_id,))
+        # Delete ALL previous results for this PO (not just one invoice_id),
+        # because a PO can have multiple partial invoices.
+        cursor.execute("DELETE FROM matching_results WHERE po_number = %s", (str(po_number),))
 
         all_codes = set(po_items.keys()) | set(grn_items.keys()) | set(inv_items.keys())
 
@@ -168,7 +229,6 @@ def run_three_way_match(po_number):
             # Normalize ONLY the quantity (Cases to Cans), leave the price alone!
             normalized_inv_qty = raw_inv_qty * conversion_factor
 
-            # Qty Variance: Compare against GRN
             qty_variance = round(normalized_inv_qty - grn_qty, 2)
             is_qty_match = True if qty_variance <= 0 else False
 
@@ -177,9 +237,12 @@ def run_three_way_match(po_number):
             is_price_match = True if price_variance <= 0.05 else False
             
             if not po:
-                print("inv", inv) 
-                status = "not_on_po" 
-                issue_summary = "Item billed or delivered but never ordered."
+                if code.startswith("unknown_"):
+                    status = "unmatched"
+                    issue_summary = "Could not auto-match — assign product code manually via the dropdown."
+                else:
+                    status = "not_on_po"
+                    issue_summary = "Item billed but never ordered on this PO."
             elif not inv:
                 status = "not_billed"
                 issue_summary = "Item delivered but not on vendor invoice."
@@ -190,7 +253,13 @@ def run_three_way_match(po_number):
                 status = "mismatch"
                 issues = []
                 if not is_qty_match:
-                    issues.append(f"Overbilled by {qty_variance} units")
+                    if conversion_factor != 1.0:
+                        issues.append(
+                            f"Overbilled by {qty_variance} units "
+                            f"(invoice {raw_inv_qty} × CF {conversion_factor} = {normalized_inv_qty})"
+                        )
+                    else:
+                        issues.append(f"Overbilled by {qty_variance} units")
                 if not is_price_match:
                     issues.append(f"Overpriced by {price_variance} per unit")
                 issue_summary = " | ".join(issues)
@@ -203,6 +272,8 @@ def run_three_way_match(po_number):
                 "product_code": code,
                 "po_qty": po_qty,
                 "grn_qty": grn_qty,
+                "invoice_qty_raw": raw_inv_qty,
+                "conversion_factor": conversion_factor,
                 "invoice_qty": normalized_inv_qty,
                 "qty_variance": qty_variance,
                 "is_qty_match": is_qty_match,
