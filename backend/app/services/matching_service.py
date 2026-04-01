@@ -169,6 +169,15 @@ def run_three_way_match(po_number):
         if not inv_items:
             return {"error": "No Extracted Invoice Items found for this PO."}
 
+        # Build Qdrant vectors for current PO items once per matching run.
+        # If Qdrant is unavailable, continue with legacy heuristics.
+        vector_enabled = True
+        try:
+            index_po_items(po_items)
+        except Exception as e:
+            vector_enabled = False
+            print(f"[matching_service] Vector index skipped: {e}")
+
         import difflib
         
         po_desc_to_code = {data.get("desc", "").lower(): code for code, data in po_items.items() if data.get("desc")}
@@ -177,8 +186,20 @@ def run_three_way_match(po_number):
             if inv_code.startswith("unknown_"):
                 inv_desc = inv_data.get("desc", "").lower()
                 matched_po_code = None
+
+                if vector_enabled and inv_desc:
+                    try:
+                        candidates = find_ranked_candidates(
+                            inv_desc,
+                            threshold=RELAXED_THRESHOLD,
+                            top_k=10,
+                        )
+                        if candidates:
+                            matched_po_code = candidates[0][0]
+                    except Exception as e:
+                        print(f"[matching_service] Vector search failed for '{inv_desc}': {e}")
                 
-                if inv_desc and po_desc_to_code:
+                if not matched_po_code and inv_desc and po_desc_to_code:
                     matches = difflib.get_close_matches(inv_desc, po_desc_to_code.keys(), n=1, cutoff=0.4)
                     if matches:
                         matched_po_code = po_desc_to_code[matches[0]]
