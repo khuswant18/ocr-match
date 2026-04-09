@@ -18,7 +18,7 @@ def _fetch_po_items(cursor, po_number):
         WHERE po_number = %s
         """,
         (str(po_number),),
-    )
+    ) 
     items = {}
     for r in cursor.fetchall():
         items[str(r[0]).strip()] = {

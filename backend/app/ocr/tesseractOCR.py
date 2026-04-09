@@ -22,7 +22,7 @@ def process_tesseract():
     average_confidence = compute_confidence(data)
 
     start_time_parsing = time.time()
-    # Use LLM local integration parser
+    # Use Groq-backed LLM parser
     parsed_data = parse_with_gemini(text)
     parsing_time = time.time() - start_time_parsing
 

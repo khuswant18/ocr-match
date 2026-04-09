@@ -37,6 +37,7 @@ _client: QdrantClient | None = None
 # and the invoice side are normalised, so we need expansions in both
 # directions (abbreviated PO → full word, full invoice → same full word).
 # ---------------------------------------------------------------------------
+
 _ABBREVIATIONS: dict[str, str] = {
     # Hotdog variants
     "hdog": "hotdog", "hdg": "hotdog", "hd": "hotdog", "htdg": "hotdog",

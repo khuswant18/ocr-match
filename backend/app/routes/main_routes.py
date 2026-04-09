@@ -21,12 +21,16 @@ def delete_invoice():
 
 @main_bp.route('/update-invoice', methods=['POST'])
 def update_invoice():
-    new_data = request.json["new_data"]
-    invoice_id = new_data["id"]
+    payload = request.get_json(silent=True) or {}
+    new_data = payload.get("new_data") or {}
+    invoice_id = new_data.get("id")
     if not invoice_id:
         return jsonify({"error": "ID parameter is missing"}), 400
 
-    updated_invoice_id = update_invoice_service(new_data)
+    updated_invoice_id, error = update_invoice_service(new_data)
+    print("Updated invoice ID:", updated_invoice_id)
+    if error:
+        return jsonify({"error": error}), 400
     if not updated_invoice_id:
         return jsonify({"error": "Invoice not found"}), 404
 

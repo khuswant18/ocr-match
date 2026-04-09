@@ -207,6 +207,7 @@ const MatchingPage = () => {
   const [rawInvItems, setRawInvItems] = useState(null);
   const [rawGrnItems, setRawGrnItems] = useState(null);
   const [error, setError] = useState(null);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     const fetchPoList = async () => {
@@ -278,6 +279,9 @@ const MatchingPage = () => {
   const qtyErrors = result ? result.filter((r) => !r.is_qty_match).length : 0;
   const perfectMatches = result
     ? result.filter((r) => r.status === "matched").length
+    : 0;
+  const notBilled = result
+    ? result.filter((r) => r.status === "not_billed").length
     : 0;
 
   const selectedPoData = poList.find((p) => p.po_number === selectedPo);
@@ -444,6 +448,23 @@ const MatchingPage = () => {
                   {perfectMatches}
                 </Typography>
               </div>
+              <div
+                className={classes.summaryCard}
+                style={{
+                  backgroundColor:
+                    notBilled > 0 ? "rgba(2, 136, 209, 0.1)" : "inherit",
+                }}
+              >
+                <Typography sx={{ color: notBilled > 0 ? "#0288d1" : "#666" }}>
+                  Not Billed
+                </Typography>
+                <Typography
+                  variant="h4"
+                  sx={{ color: notBilled > 0 ? "#0288d1" : "inherit" }}
+                >
+                  {notBilled}
+                </Typography>
+              </div>
             </div>
 
             {totalItems > 0 && perfectMatches === totalItems && (
@@ -475,7 +496,8 @@ const MatchingPage = () => {
                   // Pass the flat result array directly. Add a unique 'id' for the DataGrid.
                   rows={result.map((row, index) => ({ id: index, ...row }))}
                   columns={getAuditColumns(rawPoItems || [], handleProductCodeChange)}
-                  pageSize={10}
+                  pageSize={pageSize}
+                  onPageSizeChange={(newPageSize) => setPageSize(newPageSize)}
                   rowsPerPageOptions={[10, 25, 50]}
                   autoHeight
                   disableSelectionOnClick
@@ -499,7 +521,8 @@ const MatchingPage = () => {
                 <DataGrid
                   rows={rawPoItems.map((row, index) => ({ id: index, ...row }))}
                   columns={RAW_PO_COLUMNS}
-                  pageSize={10}
+                  pageSize={pageSize}
+                  onPageSizeChange={(newPageSize) => setPageSize(newPageSize)}
                   rowsPerPageOptions={[10, 25, 50]}
                   autoHeight
                   disableSelectionOnClick
@@ -523,7 +546,8 @@ const MatchingPage = () => {
                 <DataGrid
                   rows={rawInvItems.map((row, index) => ({ id: index, ...row }))}
                   columns={getInvColumns(rawPoItems || [], handleProductCodeChange)}
-                  pageSize={10}
+                  pageSize={pageSize}
+                  onPageSizeChange={(newPageSize) => setPageSize(newPageSize)}
                   rowsPerPageOptions={[10, 25, 50]}
                   autoHeight
                   disableSelectionOnClick
@@ -547,7 +571,8 @@ const MatchingPage = () => {
                 <DataGrid
                   rows={rawGrnItems.map((row, index) => ({ id: index, ...row }))}
                   columns={RAW_GRN_COLUMNS}
-                  pageSize={10}
+                  pageSize={pageSize}
+                  onPageSizeChange={(newPageSize) => setPageSize(newPageSize)}
                   rowsPerPageOptions={[10, 25, 50]}
                   autoHeight
                   disableSelectionOnClick

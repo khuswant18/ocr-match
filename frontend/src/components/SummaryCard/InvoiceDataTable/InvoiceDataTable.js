@@ -43,9 +43,6 @@ const InvoiceTable = (props) => {
     }
 
     let displayValue = rawValue || "";
-    if (field === "total_amount" && displayValue) {
-      displayValue = `₹ ${displayValue}`;
-    }
 
     return (
       <Grid item xs={6} key={index}>

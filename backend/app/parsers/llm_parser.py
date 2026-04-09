@@ -1,20 +1,23 @@
 import os
 import json
 import logging
-import google.generativeai as genai
 import re
+from groq import Groq
 
 logger = logging.getLogger(__name__)
 
-# Configure Gemini with the provided API key
-api_key = os.environ.get("GEMINI_API_KEY", "AIzaSyCQiDqS-kdqBJJuHAGW_9RsOJeVTQPzDc4")
-if not api_key:
-    logger.error("CRITICAL: GEMINI_API_KEY environment variable is missing.")
-genai.configure(api_key=api_key)
+MODEL_NAME = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
 
 def parse_with_gemini(ocr_text: str) -> dict: 
     """ 
-    Sends the noisy OCR text to Google Gemini model to extract structured JSON.
+    Backward-compatible wrapper that now uses Groq Llama to extract structured JSON.
+    """
+    return parse_with_groq(ocr_text)
+
+
+def parse_with_groq(ocr_text: str) -> dict:
+    """
+    Sends the noisy OCR text to Groq Llama 8B model to extract structured JSON.
     """
     prompt = f"""You are an AI system specialized in extracting structured data from OCR text of invoices.
 The input is noisy OCR output. It may contain spelling mistakes, broken formatting, incorrect alignment, and irrelevant text.
@@ -24,10 +27,10 @@ EXTRACTION RULES:
 2. Understand keywords:
    - "inv", "inv no.", "Invoice No", "invoice number" -> invoice_number
    - "Invoice Date", "Date" -> invoice_date
-   - "PO number", "p.o no", "po no", "PO", "po" -> po_number (IMPORTANT: extract the EXACT PO number as printed, including all digits)
+   - "PO number", "p.o no", "po no","PO", "po" -> po_number (IMPORTANT: extract the EXACT PO number as printed, including all digits)
    - "Due Date" -> due_date
    - "Total", "Grand Total" -> total_amount
-   - "TIN", "VAT Reg TIN" -> tin
+   - "TIN", "VAT Reg TIN,"TIN:" -> tin
 3. ITEM EXTRACTION — THIS IS CRITICAL:
    a. Extract the FULL product description exactly as printed. Include brand names, sizes, pack info, parenthetical notes like "(Premium Hotdog)".
       DO NOT SKIP items because of special characters like parentheses (), quotes "", or dashes -.
@@ -60,9 +63,19 @@ FINAL RULE: Return ONLY valid JSON matching the schema above. No explanation, no
 """
 
     try:
-        model = genai.GenerativeModel('gemini-2.5-pro')
-        response = model.generate_content(prompt)
-        text_response = response.text
+        api_key = "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"
+        if not api_key:
+            logger.error("CRITICAL: GROQ_API_KEY environment variable is missing.")
+            return {}
+
+        client = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        text_response = response.choices[0].message.content or "{}"
 
         # Use regex to find JSON block in case there's markdown formatting
         match = re.search(r'```json\n(.*)\n```', text_response, re.DOTALL)
@@ -76,6 +89,6 @@ FINAL RULE: Return ONLY valid JSON matching the schema above. No explanation, no
         return parsed_data
 
     except Exception as e:
-        logger.error(f"Error calling Gemini API: {e}")
+        logger.error(f"Error calling Groq API: {e}")
         # Return an empty structure if it fails
         return {}

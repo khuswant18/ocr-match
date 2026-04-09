@@ -47,32 +47,32 @@ def process_paddleocr():
         average_confidence, text = process_paddleocr_text(result)
 
         print("\n" + "="*50)
-        print("[LOG] TEXT EXTRACTED BY PADDLE OCR (BEFORE GEMINI):")
+        print("[LOG] TEXT EXTRACTED BY PADDLE OCR (BEFORE GROQ):")
         print("="*50)
         print(text)
         print("="*50 + "\n")
 
-        # --- STEP 2: GEMINI PARSING ---
+        # --- STEP 2: GROQ LLM PARSING ---
         start_time_parsing = time.time()
-        print("[LOG] SENDING TEXT TO GEMINI FOR EXTRACTION...")
+        print("[LOG] SENDING TEXT TO GROQ FOR EXTRACTION...")
         
         parsed_data = parse_with_gemini(text)
         parsing_time = time.time() - start_time_parsing
 
         print("\n" + "="*50)
-        print("[LOG] PARSED DATA RETURNED FROM GEMINI:")
+        print("[LOG] PARSED DATA RETURNED FROM GROQ:")
         print("="*50)
         
         #ensuring parsed_data is actually a dictionary
         if isinstance(parsed_data, str):
             try:
-                # In case Gemini wrapped it in markdown like ```json ... ```
+                # In case LLM wrapped it in markdown like ```json ... ```
                 clean_string = parsed_data.strip().removeprefix('```json').removesuffix('```').strip()
                 parsed_data = json.loads(clean_string)
             except json.JSONDecodeError:
-                logging.error(f"Gemini returned invalid JSON string: {parsed_data}")
+                logging.error(f"Groq returned invalid JSON string: {parsed_data}")
                 return jsonify({
-                    'error': 'Failed to parse Gemini output as JSON.',
+                    'error': 'Failed to parse Groq output as JSON.',
                     'raw_output': parsed_data
                 }), 500
 
