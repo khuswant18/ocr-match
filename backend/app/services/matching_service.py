@@ -161,8 +161,10 @@ def run_three_way_match(po_number):
         grn_items = _fetch_grn_items(cursor, po_number)
         inv_items = _fetch_invoice_items(cursor, po_number, po_items)
         print("po_items", po_items)
-        print("grn_items", grn_items)
-        print("inv_items", inv_items) 
+        print("**************")
+        print("**************")
+        print("**************")
+
 
         if not po_items:
             return {"error": "No PO lines found for this PO number."}
@@ -337,13 +339,26 @@ def run_three_way_match(po_number):
 
 
 def get_po_list():
-    """Return list of available PO numbers from po_headers."""
-    conn = get_connection() 
+    """Return list of available PO numbers from po_headers UNION invoices."""
+    conn = get_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "SELECT po_number, po_date, store_code, supplier_code FROM po_headers ORDER BY po_date DESC"
-        ) 
+            """
+            SELECT po_number, po_date, store_code, supplier_code FROM po_headers
+            UNION
+            SELECT DISTINCT pl.po_number, NULL, pl.store_code, NULL
+            FROM po_lines pl
+            WHERE NOT EXISTS (SELECT 1 FROM po_headers ph WHERE ph.po_number = pl.po_number)
+            UNION
+            SELECT i.po_number, i.invoice_date, NULL, NULL
+            FROM invoices i
+            WHERE i.po_number IS NOT NULL AND i.po_number != ''
+              AND NOT EXISTS (SELECT 1 FROM po_headers ph2 WHERE ph2.po_number = i.po_number)
+              AND NOT EXISTS (SELECT 1 FROM po_lines pl2 WHERE pl2.po_number = i.po_number)
+            ORDER BY po_date DESC
+            """
+        )
         rows = cursor.fetchall()
         return [
             {

@@ -11,7 +11,7 @@ pytesseract==0.3.10
 paddlepaddle==2.6.2
 paddleocr==2.7.3
 requests==2.31.0
-numpy==1.24.3
+numpy==1.26.4
 groq==0.18.0
 mysql-connector-python==8.2.0
 qdrant-client==1.9.1

@@ -63,7 +63,7 @@ FINAL RULE: Return ONLY valid JSON matching the schema above. No explanation, no
 """
 
     try:
-        api_key = "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"
+        api_key = "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"
         if not api_key:
             logger.error("CRITICAL: GROQ_API_KEY environment variable is missing.")
             return {}
