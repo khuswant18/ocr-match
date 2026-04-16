@@ -3,7 +3,6 @@ import os
 
 load_dotenv()
 
-INVOICE_LANG = "slk"
 BACKEND_URL = "http://localhost:5000"
 
 

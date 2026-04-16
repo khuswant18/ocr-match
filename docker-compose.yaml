@@ -16,22 +16,29 @@ services:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
       interval: 5s
       timeout: 10s
-      retries: 10
+      retries: 10 
       start_period: 30s
 
   backend:
     build: ./backend
     ports:
       - '5001:5000'
+    env_file:
+      - ./backend/.env
     environment:
       - MYSQL_HOST=mysql
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - GROQ_MODEL=${GROQ_MODEL:-llama-3.1-8b-instant}
+      - GROQ_MODEL=llama-3.3-70b-versatile
+      - OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/chat/completions
+      - OPENROUTER_HTTP_REFERER=http://localhost
+      - OPENROUTER_APP_TITLE=ocr-match
     volumes:
         - ./backend:/app
+        - paddle_models:/root/.paddleocr
     depends_on:
       mysql:
         condition: service_healthy
+      qdrant:
+        condition: service_started
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -55,3 +62,4 @@ services:
 volumes:
   mysql_data:
   qdrant_data:
+  paddle_models:

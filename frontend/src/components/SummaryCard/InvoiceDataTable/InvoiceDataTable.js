@@ -13,13 +13,15 @@ const InvoiceTable = (props) => {
 
   const handleChange = (e, field) => {
     let newData = { ...localData };
-    if (field === "cgst" || field === "sgst" || field === "igst" || field === "subtotal" || field === "total_amount") {
+    if (["subtotal", "vat", "discount", "total_amount"].includes(field)) {
        if (!newData.financials) newData.financials = {};
        newData.financials[field] = e.target.value;
-    } else if (field === "bank" || field === "ifsc" || field === "account_number") {
-       const bankFieldMap = {"bank": "bank_name", "ifsc": "ifsc", "account_number": "account_number"};
-       if (!newData.bank_details) newData.bank_details = {};
-       newData.bank_details[bankFieldMap[field]] = e.target.value;
+    } else if (field === "supplier_name" || field === "supplier_tin") {
+       if (!newData.supplier) newData.supplier = {};
+       newData.supplier[field === "supplier_name" ? "name" : "tin"] = e.target.value;
+    } else if (field === "buyer_name" || field === "buyer_tin") {
+       if (!newData.buyer) newData.buyer = {};
+       newData.buyer[field === "buyer_name" ? "name" : "tin"] = e.target.value;
     } else {
        newData[field] = e.target.value;
     }
@@ -28,21 +30,24 @@ const InvoiceTable = (props) => {
   };
 
   const renderTextField = (field, label, index) => {
-    // Check nested structures primarily from Gemini (like financial dict or bank details)
     let rawValue = localData[field];
-    
-    if (field === "cgst" || field === "sgst" || field === "igst" || field === "subtotal" || field === "total_amount") {
+
+    if (["subtotal", "vat", "discount", "total_amount"].includes(field)) {
       if (localData.financials && localData.financials[field] !== undefined) {
          rawValue = localData.financials[field];
       }
-    } else if (field === "bank" || field === "ifsc" || field === "account_number") {
-      const bankFieldMap = {"bank": "bank_name", "ifsc": "ifsc", "account_number": "account_number"};
-      if (localData.bank_details && localData.bank_details[bankFieldMap[field]] !== undefined) {
-         rawValue = localData.bank_details[bankFieldMap[field]];
-      }
+    } else if (field === "supplier_name") {
+      rawValue = localData.supplier?.name;
+    } else if (field === "supplier_tin") {
+      rawValue = localData.supplier?.tin;
+    } else if (field === "buyer_name") {
+      rawValue = localData.buyer?.name;
+    } else if (field === "buyer_tin") {
+      rawValue = localData.buyer?.tin;
     }
 
-    let displayValue = rawValue || "";
+    let displayValue = rawValue ?? "";
+    if (typeof displayValue === "number") displayValue = String(displayValue);
 
     return (
       <Grid item xs={6} key={index}>
@@ -60,19 +65,19 @@ const InvoiceTable = (props) => {
   };
 
   const fields = [
-    { field: "invoice_number", label: "Invoice number" },
+    { field: "invoice_number", label: "Invoice Number" },
     { field: "po_number", label: "PO Number" },
     { field: "invoice_date", label: "Invoice Date" },
     { field: "due_date", label: "Due Date" },
-    { field: "bank", label: "Bank" },
-    { field: "ifsc", label: "IFSC" },
-    { field: "account_number", label: "Account Number" },
-    { field: "payment_method", label: "Payment method" },
+    { field: "supplier_name", label: "Supplier" },
+    { field: "supplier_tin", label: "Supplier TIN" },
+    { field: "buyer_name", label: "Buyer / Store" },
+    { field: "buyer_tin", label: "Buyer TIN" },
+    { field: "store_code", label: "Store Code" },
     { field: "subtotal", label: "Subtotal" },
-    { field: "cgst", label: "CGST" },
-    { field: "sgst", label: "SGST" },
-    { field: "igst", label: "IGST" },
-    { field: "total_amount", label: "Total amount" },
+    { field: "vat", label: "VAT" },
+    { field: "discount", label: "Discount" },
+    { field: "total_amount", label: "Total Amount" },
   ];
 
   return (

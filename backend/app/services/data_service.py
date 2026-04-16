@@ -1,5 +1,5 @@
 from app.models import db, Invoice
-import base64
+
 
 def serializable_invoices(invoices):
     return [{
@@ -20,18 +20,27 @@ def serializable_invoices(invoices):
         } for item in invoice.items]
     } for invoice in invoices]
 
+
 def get_invoices(user_id=None):
-    invoices = Invoice.query.all()
+    invoices = Invoice.query.order_by(Invoice.id.desc()).all()
     return serializable_invoices(invoices)
 
+
 def save_time_other(invoice_id, time_other):
+    invoice = Invoice.query.get(invoice_id)
+    if not invoice:
+        return False
     return True
 
+
 def get_performance_data(invoice_id):
+    invoice = Invoice.query.get(invoice_id)
+    if not invoice:
+        return None
     return {
-        'average_confidence': 95.0,
-        'recognition_time': 5.0,
-        'parsing_time': 5.0,
+        'average_confidence': float(invoice.ocr_confidence or 0),
+        'recognition_time': float(invoice.recognition_time or 0),
+        'parsing_time': float(invoice.parsing_time or 0),
         'other_time': 0.0,
-        'ocr_method': 'API'
+        'ocr_method': invoice.ocr_method or 'PaddleOCR',
     }

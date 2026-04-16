@@ -60,7 +60,6 @@ const OCRCard = () => {
   };
 
   const checkIfInvoice = (data) => {
-    // Check if the parsed_data exists at all, followed by key values mapped from Gemini (like invoice_number, etc)
     const pData = data?.parsed_data || {};
     if ( 
       !pData.invoice_number &&
@@ -95,31 +94,21 @@ const OCRCard = () => {
     <>
       <div className={classes.rootContainer}>
         <Typography variant="h5" sx={{ pt: 2 }}>
-          Select OCR
+          Extract Invoice
         </Typography>
 
-        <Grid container spacing={0} sx={{ mt: "15px" }}>
-          <Grid item xs={6}>
-            <ButtonOutlined
-              onClick={() => handleOCRmethod("tesseract")}
-              style={{
-                padding: "6px 18px",
-              }}
-              disabled={loading}
-            >
-              Tesseract
-            </ButtonOutlined>
-          </Grid>
-          <Grid item xs={6}>
+        <Grid container spacing={0} sx={{ mt: "15px", justifyContent: "center" }}>
+          <Grid item xs={8}>
             <ButtonOutlined
               variant="outlined"
               onClick={() => handleOCRmethod("paddleOCR")}
               style={{
-                padding: "6px 18px",
+                padding: "10px 24px",
+                width: "100%",
               }}
               disabled={loading}
             >
-              PaddleOCR
+              Run PaddleOCR
             </ButtonOutlined>
           </Grid>
         </Grid>
