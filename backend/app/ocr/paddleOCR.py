@@ -158,7 +158,7 @@ def process_paddleocr():
 
         # ── STEP 2b: Self-verification — fix qty/price math errors ───
         if isinstance(parsed_data, dict):
-            parsed_data = verify_and_fix(parsed_data)
+            parsed_data = verify_and_fix(parsed_data, text)
 
         print("\n" + "=" * 60)
         print("[LLM] FINAL PARSED DATA (after verification):")

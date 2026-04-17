@@ -48,6 +48,32 @@ class InvoiceItem(db.Model):
     uom = db.Column(db.String(20))
     normalized_qty = db.Column(db.Numeric(12, 2))
 
+class CorrectionLog(db.Model):
+    """
+    Stores every manual correction a user makes. Used to build
+    few-shot examples so the LLM improves over time per supplier.
+    """
+    __tablename__ = "correction_log"
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoices.id', ondelete="CASCADE"), nullable=True)
+    supplier_name = db.Column(db.String(255))
+
+    # What type of correction: "field", "item_qty", "item_price", "item_desc", "product_code"
+    correction_type = db.Column(db.String(50))
+
+    # What the OCR/LLM originally extracted
+    field_name = db.Column(db.String(100))
+    original_value = db.Column(db.Text)
+
+    # What the user corrected it to
+    corrected_value = db.Column(db.Text)
+
+    # For product_code corrections: the invoice item description that was matched
+    item_description = db.Column(db.Text)
+
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+
 class MatchingResult(db.Model):
     __tablename__ = "matching_results"
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
