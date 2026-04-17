@@ -145,6 +145,56 @@ class LlmParserTests(unittest.TestCase):
         fixed = parser.verify_and_fix(parsed, ocr_text)
         self.assertEqual(fixed["supplier"]["tin"], "000-065-503-00037")
 
+    def test_verify_and_fix_rebalances_prices_using_ocr_table(self):
+        parser = load_parser_module()
+        parsed = {
+            "items": [
+                {
+                    "product_code": "",
+                    "description": "BIG SHOT Hotdog Sweet Style Jumbo 6 1k/10",
+                    "quantity": 1,
+                    "uom": "case",
+                    "unit_price": 1703.7,
+                    "total_price": 1703.7,
+                },
+                {
+                    "product_code": "",
+                    "description": "BIG SHOT Hotdog with Cheese Regutar 1k/10",
+                    "quantity": 1,
+                    "uom": "case",
+                    "unit_price": 1703.7,
+                    "total_price": 1703.7,
+                },
+                {
+                    "product_code": "",
+                    "description": "CHAMPION Tocino Rol 250g/42",
+                    "quantity": 2,
+                    "uom": "case",
+                    "unit_price": 1756.5,
+                    "total_price": 3513.0,
+                },
+            ],
+            "financials": {"subtotal": 6683.32},
+        }
+
+        ocr_text = """
+        DESCRIPTION\tQTY.\tUOM\tUNIT PRICE\tAMOUNT
+        BIG SHOT Hotdog Sweet Style Jumbo 6 1k/10\tBIG SHOT Hotdog with Cheese Regutar 1k/10\t1.00\tcase\t1,703.70\t1703.70
+        CHAMPION Tocino Rol 250g/42\t2.00\t1.00\tcase\tcase\t1,516.62\t1,731.50\t3463.00\t1,516.62
+        Remarks:\tTOTAL SALES (VAT INCLUSIVE)
+        LESS:VAT\t6,683.32
+        """
+
+        fixed = parser.verify_and_fix(parsed, ocr_text)
+        items = fixed["items"]
+        self.assertEqual(items[0]["quantity"], 1)
+        self.assertEqual(items[1]["quantity"], 2)
+        self.assertEqual(items[2]["quantity"], 1)
+        self.assertEqual(items[0]["unit_price"], 1703.7)
+        self.assertEqual(items[1]["unit_price"], 1731.5)
+        self.assertEqual(items[2]["unit_price"], 1516.62)
+        self.assertEqual(sum(i["total_price"] for i in items), 6683.32)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -156,7 +156,6 @@ USER_PROMPT_TEMPLATE = """Extract ALL structured data from the OCR text below.
 
 
 # ── Post-processing (pure math, no hardcoded domain knowledge) ────────────
-
 def verify_and_fix(parsed: dict, ocr_text: str = "") -> dict:
     """
     Rule-based fixes using only arithmetic — no domain assumptions.
@@ -231,6 +230,12 @@ def verify_and_fix(parsed: dict, ocr_text: str = "") -> dict:
     # OCR-aware field correction: prefer stronger PO candidates and fill missing TINs.
     if ocr_text:
         _apply_ocr_field_fallbacks(parsed, ocr_text)
+
+    # OCR-guided price rebalance: keeps quantity as extracted, but fixes
+    # duplicated/wrong unit prices by matching table numbers to subtotal.
+    if ocr_text and isinstance(financials, dict) and fixed_items:
+        _rebalance_item_prices_from_ocr(fixed_items, financials, ocr_text)
+        _fix_cross_line_item_bundle_swap(fixed_items, ocr_text)
 
     # Fill missing total_amount from item sum
     if isinstance(financials, dict):
@@ -431,6 +436,206 @@ def _apply_ocr_field_fallbacks(parsed: dict, ocr_text: str) -> None:
 
     parsed["supplier"] = supplier
     parsed["buyer"] = buyer
+
+
+def _extract_item_section(ocr_text: str) -> str:
+    low = ocr_text.lower()
+    start_idx = low.find("description")
+    if start_idx == -1:
+        return ""
+
+    end_markers = [
+        "remarks",
+        "total sales",
+        "vatable sales",
+        "total amount due",
+    ]
+    end_idx = len(ocr_text)
+    for marker in end_markers:
+        pos = low.find(marker, start_idx + 1)
+        if pos != -1:
+            end_idx = min(end_idx, pos)
+
+    return ocr_text[start_idx:end_idx]
+
+
+def _extract_price_candidates_from_item_section(ocr_text: str) -> list[float]:
+    section = _extract_item_section(ocr_text)
+    if not section:
+        return []
+
+    # Currency-like numbers (with 2 decimals) in item table only.
+    raw_nums = re.findall(r'\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2}', section)
+    vals: list[float] = []
+    for token in raw_nums:
+        v = _to_float(token)
+        # Keep realistic per-line-item prices/totals.
+        if 100 <= v <= 100000:
+            vals.append(round(v, 2))
+    return vals
+
+
+def _rebalance_item_prices_from_ocr(items: list[dict], financials: dict, ocr_text: str) -> None:
+    target_subtotal = _to_float(financials.get("subtotal", 0))
+    if target_subtotal <= 0:
+        return
+
+    price_candidates = _extract_price_candidates_from_item_section(ocr_text)
+    if not price_candidates:
+        return
+
+    # Only apply when there is evidence of duplicated/misaligned pricing.
+    qty1_items = [it for it in items if _to_float(it.get("quantity", 0)) == 1]
+    repeated_qty1_prices = {}
+    for it in qty1_items:
+        up = round(_to_float(it.get("unit_price", 0)), 2)
+        repeated_qty1_prices[up] = repeated_qty1_prices.get(up, 0) + 1
+    if not any(count >= 2 for count in repeated_qty1_prices.values()):
+        return
+
+    # Build per-item options from OCR table numbers and existing value.
+    options_per_item: list[list[float]] = []
+    for it in items:
+        qty = _to_float(it.get("quantity", 0))
+        existing = round(_to_float(it.get("unit_price", 0)), 2)
+        opts = {existing} if existing > 0 else set()
+
+        # Candidate as direct unit price.
+        for p in price_candidates:
+            opts.add(round(p, 2))
+
+        # Candidate inferred from total-like token / qty.
+        if qty > 0:
+            for t in price_candidates:
+                inferred = round(t / qty, 2)
+                if 100 <= inferred <= 100000:
+                    opts.add(inferred)
+
+        options_per_item.append(sorted(opts))
+
+    # Search for the combination closest to subtotal.
+    best_combo = None
+    best_score = (float("inf"), float("inf"))  # (subtotal_diff, change_penalty)
+
+    base_prices = [round(_to_float(it.get("unit_price", 0)), 2) for it in items]
+
+    def _dfs(i: int, current_prices: list[float], running_total: float):
+        nonlocal best_combo, best_score
+        if i == len(items):
+            diff = abs(round(running_total - target_subtotal, 2))
+            # Prefer minimal change from current parse, weighted to keep
+            # earlier rows stable when multiple combos match subtotal.
+            penalty = 0.0
+            n = len(base_prices)
+            for idx, p in enumerate(current_prices):
+                penalty += abs(p - base_prices[idx]) * (n - idx)
+            score = (diff, penalty)
+            if score < best_score:
+                best_score = score
+                best_combo = list(current_prices)
+            return
+
+        qty = _to_float(items[i].get("quantity", 0))
+        if qty <= 0:
+            _dfs(i + 1, current_prices + [0.0], running_total)
+            return
+
+        for p in options_per_item[i]:
+            # Basic pruning.
+            if running_total + (qty * p) - target_subtotal > 5000:
+                continue
+            _dfs(i + 1, current_prices + [p], running_total + (qty * p))
+
+    _dfs(0, [], 0.0)
+    if not best_combo or best_score[0] > 2.0:
+        return
+
+    # Avoid assigning the same price to multiple qty=1 lines when better split exists.
+    seen_qty1: set[float] = set()
+    for idx, it in enumerate(items):
+        qty = _to_float(it.get("quantity", 0))
+        chosen = round(best_combo[idx], 2)
+        if qty == 1 and chosen in seen_qty1:
+            continue
+        if qty == 1:
+            seen_qty1.add(chosen)
+        it["unit_price"] = chosen
+        it["total_price"] = round(chosen * qty, 2)
+
+
+def _desc_tokens(desc: str) -> list[str]:
+    words = re.findall(r'[a-z0-9]+', str(desc).lower())
+    return [w for w in words if len(w) >= 3][:4]
+
+
+def _line_match_score(line: str, desc: str) -> int:
+    low = line.lower()
+    return sum(1 for tok in _desc_tokens(desc) if tok in low)
+
+
+def _find_best_item_line_index(lines: list[str], desc: str) -> int:
+    best_idx = -1
+    best_score = 0
+    for i, ln in enumerate(lines):
+        sc = _line_match_score(ln, desc)
+        if sc > best_score:
+            best_score = sc
+            best_idx = i
+    return best_idx
+
+
+def _extract_qty_tokens(line: str) -> list[float]:
+    vals: list[float] = []
+    # Restrict to decimal qty forms (e.g., 1.00, 2.00) to avoid
+    # matching product-size tokens like "6" or "1k/10".
+    for token in re.findall(r'\b\d{1,2}\.\d{2}\b', line):
+        v = _to_float(token)
+        if 0 < v <= 20:
+            vals.append(v)
+    return vals
+
+
+def _fix_cross_line_item_bundle_swap(items: list[dict], ocr_text: str) -> None:
+    """
+    Fix common OCR row-merge pattern where one item's description appears on
+    a previous line, while two numeric bundles appear on the next line,
+    causing adjacent items to get swapped qty/price/total bundles.
+    """
+    if len(items) < 3:
+        return
+
+    section = _extract_item_section(ocr_text)
+    if not section:
+        return
+    lines = [ln for ln in section.splitlines() if ln.strip()]
+    if len(lines) < 2:
+        return
+
+    for i in range(1, len(items) - 1):
+        prev_idx = _find_best_item_line_index(lines, items[i - 1].get("description", ""))
+        curr_idx = _find_best_item_line_index(lines, items[i].get("description", ""))
+        next_idx = _find_best_item_line_index(lines, items[i + 1].get("description", ""))
+        if prev_idx == -1 or curr_idx == -1 or next_idx == -1:
+            continue
+
+        # Pattern: item[i] shares line with previous description,
+        # item[i+1] appears on next line where multiple qty tokens exist.
+        if curr_idx != prev_idx or next_idx <= curr_idx:
+            continue
+
+        curr_qty_tokens = _extract_qty_tokens(lines[curr_idx])
+        next_qty_tokens = _extract_qty_tokens(lines[next_idx])
+        if len(next_qty_tokens) < 2 or len(curr_qty_tokens) > 1:
+            continue
+
+        qi = _to_float(items[i].get("quantity", 0))
+        qj = _to_float(items[i + 1].get("quantity", 0))
+        # Swap when the second item currently has the larger qty bundle;
+        # in this pattern that larger bundle belongs to the carried-over item.
+        if qi <= 1 and qj > 1:
+            keys = ("quantity", "unit_price", "total_price")
+            for k in keys:
+                items[i][k], items[i + 1][k] = items[i + 1].get(k), items[i].get(k)
 
 
 # ── API helpers ───────────────────────────────────────────────────────────

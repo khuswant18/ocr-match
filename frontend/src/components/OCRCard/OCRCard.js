@@ -37,18 +37,19 @@ const OCRCard = () => {
       const endTime = performance.now(); 
       const duration = (endTime - startTime) / 1000;
       const time_other = duration - resp.data.time.recognition + resp.data.time.parsing;
+      const invoiceId = resp?.data?.invoice_id ?? resp?.data?.existing_invoice_id ?? null;
       const time = resp["data"]["time"]; 
       time["other"] = time_other; 
       ocrCtx.setTextResult(resp["data"]["text"]); 
       const isInvoice = checkIfInvoice(resp["data"]);
       const extractedData = {  
         ...resp["data"]["parsed_data"],
-        id: resp["data"]["invoice_id"], 
+        id: invoiceId,
       };  
       ocrCtx.setExtractedData(extractedData);
-      ocrCtx.setInvoiceId(resp["data"]["invoice_id"]);
-      if (isInvoice) {
-        saveTimeOther(resp["data"]["invoice_id"], time_other);
+      ocrCtx.setInvoiceId(invoiceId);
+      if (isInvoice && invoiceId != null && Number.isFinite(time_other)) {
+        saveTimeOther(invoiceId, time_other);
       }
     } catch (error) {
       console.log("Error");
