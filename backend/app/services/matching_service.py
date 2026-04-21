@@ -75,27 +75,26 @@ def _fetch_grn_items(cursor, po_number):
 
 def _fetch_invoice_items(cursor, po_number, po_items):
     """
-    Fetch invoice items for a PO, accumulating quantities across multiple invoices.
-    A PO can have several partial invoices — we SUM their quantities per product_code,
-    mirroring how the GRN query does SUM(vo_tot_qty) GROUP BY product_code.
-
-    Also normalises product_code format to match po_items keys (strip whitespace,
-    leading zeros, case differences) and validates codes exist on the PO.
+    Fetch ALL invoice items across ALL invoices for a PO (multi-invoice support).
+    A PO can have several partial invoices — quantities are accumulated per product_code.
+    Each product_code entry also carries an `invoice_lines` list so the caller can
+    save one matching_results row per invoice line for a full audit trail.
     """
     cursor.execute(
         """
         SELECT ii.product_code,
                ii.normalized_qty,
                ii.unit_price,
-               ii.id  AS invoice_item_id,
-               i.id   AS invoice_id,
-               ii.product_name
+               ii.id          AS invoice_item_id,
+               i.id           AS invoice_id,
+               ii.product_name,
+               i.invoice_number
         FROM invoice_items ii
         JOIN invoices i ON i.id = ii.invoice_id
         WHERE i.po_number = %s
-          AND i.id = (SELECT MAX(id) FROM invoices WHERE po_number = %s)
+        ORDER BY i.id ASC, ii.id ASC
         """,
-        (str(po_number), str(po_number)),
+        (str(po_number),),
     )
 
     # Build a lookup for product code normalisation:
@@ -132,18 +131,33 @@ def _fetch_invoice_items(cursor, po_number, po_items):
             unknown_count += 1
             code = f"unknown_{unknown_count}"
 
-        qty   = float(r[1] or 0)
-        price = float(r[2] or 0)
+        qty            = float(r[1] or 0)
+        price          = float(r[2] or 0)
+        invoice_item_id = int(r[3])
+        invoice_id     = int(r[4])
+        desc           = str(r[5] or "")
+        invoice_number = str(r[6] or "")
+
+        # Per-line record for audit trail (one row in matching_results per line)
+        line_record = {
+            "invoice_item_id": invoice_item_id,
+            "invoice_id":      invoice_id,
+            "invoice_number":  invoice_number,
+            "qty":             qty,
+            "price":           price,
+        }
 
         if code in items:
             items[code]["qty"] += qty
+            items[code]["invoice_lines"].append(line_record)
         else:
             items[code] = {
-                "qty": qty,
-                "price": price,
-                "invoice_item_id": int(r[3]),
-                "invoice_id": int(r[4]),
-                "desc": str(r[5] or "")
+                "qty":             qty,
+                "price":           price,
+                "invoice_item_id": invoice_item_id,  # first line — kept for backward compat
+                "invoice_id":      invoice_id,
+                "desc":            desc,
+                "invoice_lines":   [line_record],
             }
     return items
 
@@ -221,15 +235,13 @@ def run_three_way_match(po_number):
 
         ui_results = []
 
-        invoice_id = list(inv_items.values())[0]["invoice_id"]
-        # Delete ALL previous results for this PO (not just one invoice_id),
-        # because a PO can have multiple partial invoices.
+        # Delete ALL previous results for this PO before re-inserting.
         cursor.execute("DELETE FROM matching_results WHERE po_number = %s", (str(po_number),))
 
         all_codes = set(po_items.keys()) | set(grn_items.keys()) | set(inv_items.keys())
 
         for code in sorted(all_codes):
-            po = po_items.get(code)
+            po  = po_items.get(code)
             grn = grn_items.get(code)
             inv = inv_items.get(code)
 
@@ -237,40 +249,39 @@ def run_three_way_match(po_number):
             if po and not grn and not inv:
                 continue
 
-            po_qty = po["qty"] if po else 0.0
-            po_price = po["price"] if po else 0.0
-            # Grab the conversion factor (default to 1.0 if not found)
-            conversion_factor = po["conversion_factor"] if po else 1.0 
-            
-            grn_qty = grn["qty"] if grn else 0.0
-            grn_number = grn["grn_number"] if grn else None
-            
-            raw_inv_qty = inv["qty"] if inv else 0.0
-            inv_price = inv["price"] if inv else 0.0
-            inv_item_id = inv["invoice_item_id"] if inv else None
+            po_qty            = po["qty"]  if po  else 0.0
+            po_price          = po["price"] if po  else 0.0
+            conversion_factor = po["conversion_factor"] if po else 1.0
 
-            # Normalize ONLY the quantity (Cases to Cans), leave the price alone!
+            grn_qty    = grn["qty"]        if grn else 0.0
+            grn_number = grn["grn_number"] if grn else None
+
+            # Aggregate across all partial invoices for this product_code
+            raw_inv_qty   = inv["qty"]   if inv else 0.0
+            inv_price     = inv["price"] if inv else 0.0
+            invoice_lines = inv["invoice_lines"] if inv else []
+
+            # Normalize quantity (e.g. cases → cans), leave price as-is
             normalized_inv_qty = raw_inv_qty * conversion_factor
 
-            qty_variance = round(normalized_inv_qty - grn_qty, 2)
-            is_qty_match = True if qty_variance <= 0 else False
+            qty_variance   = round(normalized_inv_qty - grn_qty, 2)
+            is_qty_match   = qty_variance <= 0
 
-            # Price Variance: Compare direct invoice case price against PO case price
             price_variance = round(inv_price - po_price, 4)
-            is_price_match = True if price_variance <= 0.05 else False
-            
+            is_price_match = price_variance <= 0.05
+
             if not po:
                 if code.startswith("unknown_"):
-                    status = "unmatched"
+                    status        = "unmatched"
                     issue_summary = "Could not auto-match — assign product code manually via the dropdown."
                 else:
-                    status = "not_on_po"
+                    status        = "not_on_po"
                     issue_summary = "Item billed but never ordered on this PO."
             elif not inv:
-                status = "not_billed"
+                status        = "not_billed"
                 issue_summary = "Item delivered but not on vendor invoice."
             elif is_qty_match and is_price_match:
-                status = "matched" 
+                status        = "matched"
                 issue_summary = "Perfect Match."
             else:
                 status = "mismatch"
@@ -287,41 +298,85 @@ def run_three_way_match(po_number):
                     issues.append(f"Overpriced by {price_variance} per unit")
                 issue_summary = " | ".join(issues)
 
-            result_row = {
-                "invoice_id": invoice_id,
-                "invoice_item_id": inv_item_id,
-                "po_number": po_number,
-                "grn_number": grn_number,
-                "product_code": code,
-                "po_qty": po_qty,
-                "grn_qty": grn_qty,
-                "invoice_qty_raw": raw_inv_qty,
+            # UI result — one row per product_code with per-invoice breakdown
+            ui_row = {
+                # Use the first invoice's ID for backward compat; full list is in invoice_lines
+                "invoice_id":       invoice_lines[0]["invoice_id"]      if invoice_lines else None,
+                "invoice_item_id":  invoice_lines[0]["invoice_item_id"] if invoice_lines else None,
+                "po_number":        po_number,
+                "grn_number":       grn_number,
+                "product_code":     code,
+                "po_qty":           po_qty,
+                "grn_qty":          grn_qty,
+                "invoice_qty_raw":  raw_inv_qty,
                 "conversion_factor": conversion_factor,
-                "invoice_qty": normalized_inv_qty,
-                "qty_variance": qty_variance,
-                "is_qty_match": is_qty_match,
-                "po_price": po_price,
-                "invoice_price": inv_price, # Ensures raw inv_price is sent to the DB and UI
-                "price_variance": price_variance,
-                "is_price_match": is_price_match,
-                "status": status,
-                "issue_summary": issue_summary
+                "invoice_qty":      normalized_inv_qty,
+                "qty_variance":     qty_variance,
+                "is_qty_match":     is_qty_match,
+                "po_price":         po_price,
+                "invoice_price":    inv_price,
+                "price_variance":   price_variance,
+                "is_price_match":   is_price_match,
+                "status":           status,
+                "issue_summary":    issue_summary,
+                # Per-invoice breakdown so the UI can show each partial invoice
+                "invoice_lines": [
+                    {
+                        "invoice_id":      l["invoice_id"],
+                        "invoice_number":  l["invoice_number"],
+                        "invoice_item_id": l["invoice_item_id"],
+                        "qty":             l["qty"],
+                        "normalized_qty":  round(l["qty"] * conversion_factor, 4),
+                        "price":           l["price"],
+                    }
+                    for l in invoice_lines
+                ],
             }
-            ui_results.append(result_row)
+            ui_results.append(ui_row)
 
-            cursor.execute("""
-                INSERT INTO matching_results (
-                    invoice_id, invoice_item_id, po_number, grn_number, product_code,
-                    po_qty, grn_qty, invoice_qty, qty_variance, is_qty_match,
-                    po_price, invoice_price, price_variance, is_price_match,
-                    status, issue_summary
-                ) VALUES (
-                    %(invoice_id)s, %(invoice_item_id)s, %(po_number)s, %(grn_number)s, %(product_code)s,
-                    %(po_qty)s, %(grn_qty)s, %(invoice_qty)s, %(qty_variance)s, %(is_qty_match)s,
-                    %(po_price)s, %(invoice_price)s, %(price_variance)s, %(is_price_match)s,
-                    %(status)s, %(issue_summary)s
-                )
-            """, result_row)
+            # DB insert — one row per invoice line for a complete audit trail.
+            # Status and variances are at the aggregate (product_code) level.
+            if invoice_lines:
+                for line in invoice_lines:
+                    line_normalized_qty = round(line["qty"] * conversion_factor, 4)
+                    cursor.execute("""
+                        INSERT INTO matching_results (
+                            invoice_id, invoice_item_id, po_number, grn_number, product_code,
+                            po_qty, grn_qty, invoice_qty, qty_variance, is_qty_match,
+                            po_price, invoice_price, price_variance, is_price_match,
+                            status, issue_summary
+                        ) VALUES (
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s, %s
+                        )
+                    """, (
+                        line["invoice_id"], line["invoice_item_id"], po_number, grn_number, code,
+                        po_qty, grn_qty, line_normalized_qty, qty_variance, is_qty_match,
+                        po_price, line["price"], price_variance, is_price_match,
+                        status, issue_summary,
+                    ))
+            else:
+                # not_billed — no invoice lines, save one row with nulls
+                cursor.execute("""
+                    INSERT INTO matching_results (
+                        invoice_id, invoice_item_id, po_number, grn_number, product_code,
+                        po_qty, grn_qty, invoice_qty, qty_variance, is_qty_match,
+                        po_price, invoice_price, price_variance, is_price_match,
+                        status, issue_summary
+                    ) VALUES (
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s
+                    )
+                """, (
+                    None, None, po_number, grn_number, code,
+                    po_qty, grn_qty, 0, qty_variance, is_qty_match,
+                    po_price, 0, price_variance, is_price_match,
+                    status, issue_summary,
+                ))
 
         conn.commit()
         raw_po_list = [{"product_code": code, **data} for code, data in po_items.items()]
