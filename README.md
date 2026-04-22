@@ -1,6 +1,6 @@
 # OCR-Match — Intelligent Invoice Processing & Three-Way Match Engine
 
-An end-to-end invoice automation platform that extracts structured data from PDF/image invoices using PaddleOCR, corrects OCR noise via Google Gemini, and reconciles every line item against Purchase Orders and Goods Receipt Notes with semantic vector matching.
+An end-to-end invoice automation platform that extracts structured data from PDF/image invoices using PaddleOCR, corrects OCR noise via Groq LLM (Llama 3.1), and reconciles every line item against Purchase Orders and Goods Receipt Notes with semantic vector matching.
 
 ---
 
@@ -13,6 +13,7 @@ An end-to-end invoice automation platform that extracts structured data from PDF
 - [File Structure](#file-structure)
 - [Database Schema](#database-schema)
 - [API Reference](#api-reference)
+- [Quick Start](#quick-start)
 - [Setup & Installation](#setup--installation)
 - [Configuration](#configuration)
 - [Workflow](#workflow)
@@ -26,7 +27,7 @@ OCR-Match automates the accounts-payable verification workflow:
 1. **Upload** a vendor invoice (PDF or image)
 2. **Preprocess** the image (denoise, deskew, binarize, remove barcodes)
 3. **Extract** raw text with PaddleOCR and an OCR confidence score
-4. **Parse** the noisy OCR output into structured JSON via Google Gemini LLM
+4. **Parse** the noisy OCR output into structured JSON via Groq LLM (Llama 3.1)
 5. **Store** the invoice with a full audit trail (confidence, timing, raw text, file path)
 6. **Match** every invoice line item three-ways against the corresponding PO and GRN
 7. **Report** quantity and price variances with a clear matched / mismatch / not-on-po status
@@ -38,7 +39,7 @@ OCR-Match automates the accounts-payable verification workflow:
 | Feature | Details |
 |---|---|
 | Multi-modal OCR | PaddleOCR v3 (detection + recognition + classification) |
-| LLM-assisted parsing | Gemini 2.5 Pro corrects OCR errors and outputs strict JSON |
+| LLM-assisted parsing | Groq (Llama 3.1) corrects OCR errors and outputs strict JSON |
 | Image preprocessing | Grayscale, binarization, NLMeans denoising, skew correction, barcode removal |
 | Three-way match engine | PO qty/price × GRN received qty × Invoice billed qty/price |
 | Semantic item matching | Qdrant vector DB + FastEmbed ONNX (`BAAI/bge-small-en-v1.5`) replaces fragile string diffing |
@@ -71,7 +72,7 @@ OCR-Match automates the accounts-payable verification workflow:
 │                           │                   │             │
 │                    ┌──────▼───────┐   ┌───────▼──────────┐ │
 │                    │ LLM Parser   │   │  Vector Service  │ │
-│                    │ (Gemini API) │   │  (FastEmbed ONNX)│ │
+│                    │  (Groq API)  │   │  (FastEmbed ONNX)│ │
 │                    └──────┬───────┘   └───────┬──────────┘ │
 └───────────────────────────┼───────────────────┼────────────┘
                             │                   │
@@ -101,7 +102,7 @@ PaddleOCR  (det + rec + cls models)
   → raw text string + confidence score
      │
      ▼
-Google Gemini 2.5 Pro
+Groq LLM  (Llama 3.1)
   → corrects OCR noise, extracts structured JSON
   → { invoice_number, po_number, supplier, buyer, items[], financials{} }
      │
@@ -152,7 +153,7 @@ Return flat JSON list → React MatchingPage
 | Flask-SQLAlchemy | 3.0.3 | ORM |
 | PaddleOCR | 2.7.3 | OCR engine |
 | PaddlePaddle | 2.6.2 | Deep learning runtime for PaddleOCR |
-| google-generativeai | 0.8.3 | Gemini LLM parsing |
+| groq | 0.18.0 | Groq LLM API client (Llama 3.1 parsing) |
 | qdrant-client | 1.9.1 | Vector database client |
 | fastembed | 0.3.1 | ONNX embeddings (`BAAI/bge-small-en-v1.5`) |
 | opencv-python-headless | 4.7.0.72 | Image preprocessing |
@@ -214,11 +215,11 @@ ocr-match/
 │   │   │   └── vector_service.py    # Qdrant index_po_items + find_best_match
 │   │   │
 │   │   ├── ocr/
-│   │   │   ├── paddleOCR.py         # PaddleOCR pipeline + Gemini parsing + DB save
+│   │   │   ├── paddleOCR.py         # PaddleOCR pipeline + Groq LLM parsing + DB save
 │   │   │   └── tesseractOCR.py      # Tesseract fallback pipeline
 │   │   │
 │   │   ├── parsers/
-│   │   │   ├── llm_parser.py        # parse_with_gemini(): raw text → structured JSON
+│   │   │   ├── llm_parser.py        # parse_with_groq(): raw text → structured JSON
 │   │   │   ├── paddleParser.py      # Post-process PaddleOCR output
 │   │   │   └── tesseractParser.py   # Post-process Tesseract output
 │   │   │
@@ -314,13 +315,13 @@ Stores one row per processed invoice.
 | discount_amount | DECIMAL(12,2) | Discount applied |
 | total_amount | DECIMAL(12,2) | Final payable amount |
 | status | VARCHAR(20) | `pending` / `matched` / `mismatch` |
-| raw_json | JSON | Full Gemini-parsed invoice JSON |
+| raw_json | JSON | Full LLM-parsed invoice JSON |
 | ocr_text | TEXT | Raw PaddleOCR text output |
 | pdf_file_path | VARCHAR(500) | Stored PDF path |
 | img_file_path | VARCHAR(500) | Stored image path |
 | ocr_confidence | DECIMAL(5,2) | Average OCR confidence % |
 | recognition_time | DECIMAL(8,4) | Seconds for OCR recognition |
-| parsing_time | DECIMAL(8,4) | Seconds for Gemini parsing |
+| parsing_time | DECIMAL(8,4) | Seconds for LLM parsing |
 | ocr_method | VARCHAR(50) | `PaddleOCR` / `Tesseract` |
 | created_at | TIMESTAMP | Auto-set on insert |
 
@@ -380,7 +381,7 @@ All preprocessing endpoints accept `multipart/form-data` with an `image` field a
 
 | Method | Endpoint | Description |
 |---|---|---|
-| POST | `/paddleOCR` | Run full pipeline: OCR → Gemini parse → save to DB |
+| POST | `/paddleOCR` | Run full pipeline: OCR → Groq LLM parse → save to DB |
 | POST | `/tesseractOCR` | Run Tesseract pipeline |
 
 ### Invoices
@@ -402,6 +403,29 @@ All preprocessing endpoints accept `multipart/form-data` with an `image` field a
 
 ---
 
+## Quick Start
+
+The fastest way to get OCR-Match running locally:
+
+```bash
+git clone https://github.com/khuswant18/ocr-match.git
+cd ocr-match
+chmod +x setup.sh
+./setup.sh
+```
+
+`setup.sh` will:
+1. Verify Docker and Docker Compose are installed and the daemon is running
+2. Create a root `.env` file (prompts for your Groq API key if one is not found)
+3. Warn if PaddleOCR model weights are missing
+4. Run `docker compose up --build -d`
+5. Wait for MySQL and the backend to become healthy
+6. Print all service URLs
+
+> **Get a free Groq API key** at <https://console.groq.com/keys>
+
+---
+
 ## Setup & Installation
 
 ### Prerequisites
@@ -411,7 +435,7 @@ All preprocessing endpoints accept `multipart/form-data` with an `image` field a
 | [Docker Desktop](https://www.docker.com/get-started) | 24.x | Ensure the Docker daemon is running before you start |
 | Docker Compose | v2 (bundled with Docker Desktop) | `docker compose` (v2) or `docker-compose` (v1) both work |
 | Git | any | For cloning the repo |
-| Google Gemini API key | — | Free tier works; [get one here](https://aistudio.google.com/app/apikey) |
+| Groq API key | — | Free tier works; [get one here](https://console.groq.com/keys) |
 
 > **Windows users:** run all commands in PowerShell or WSL2. Git Bash may have path issues with Docker volume mounts.
 
@@ -428,38 +452,27 @@ cd ocr-match
 
 ### Step 2 — Configure environment variables
 
-The backend needs a Gemini API key at runtime. The simplest approach is a `.env` file in the **project root** (the same directory as `docker-compose.yaml`). Docker Compose automatically reads this file.
+The backend needs a Groq API key at runtime. The simplest approach is a `.env` file in the **project root** (the same directory as `docker-compose.yaml`). Docker Compose automatically reads this file.
 
-```bash
-# In the project root (ocr-match/)
-cp .env.example .env        # if an example file exists, otherwise create it manually
-```
+> **Shortcut:** `./setup.sh` creates this file for you and prompts for the key.
 
-Create / edit `.env` with the following content:
+Create / edit `.env` manually if you prefer:
 
 ```env
-# Required — your Google Gemini API key
-GEMINI_API_KEY=your_gemini_api_key_here
+# Required — your Groq API key
+GROQ_API_KEY=your_groq_api_key_here
 
 # Optional overrides (defaults shown)
+GROQ_MODEL=llama-3.1-8b-instant
 SECRET_KEY=change_me_to_a_random_string
 MYSQL_ROOT_PASSWORD=root
 MYSQL_DATABASE=invoice_db
 ```
 
-Then expose `GEMINI_API_KEY` to the backend container by adding it under the `backend` service's `environment` block in `docker-compose.yaml`:
-
-```yaml
-backend:
-  environment:
-    - MYSQL_HOST=mysql
-    - GEMINI_API_KEY=${GEMINI_API_KEY}   # reads from .env
-```
-
 Alternatively, pass it inline on the command line (no file changes needed):
 
 ```bash
-GEMINI_API_KEY=your_key_here docker-compose up --build -d
+GROQ_API_KEY=your_key_here docker-compose up --build -d
 ```
 
 > **Never commit your `.env` file.** It is already listed in `.gitignore`.
@@ -566,7 +579,7 @@ docker-compose up --build backend -d
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `backend` exits immediately | Missing `GEMINI_API_KEY` or MySQL not ready | Check `docker-compose logs backend`; ensure Step 2 is complete |
+| `backend` exits immediately | Missing `GROQ_API_KEY` or MySQL not ready | Check `docker-compose logs backend`; ensure Step 2 is complete |
 | `invoice-mysql` stuck at `health: starting` | Slow disk or first-time initialisation | Wait 60 s, re-run `docker-compose ps` |
 | Port `3000` or `5001` already in use | Another process is using the port | Stop the conflicting process or change the host port in `docker-compose.yaml` (e.g. `"3001:3000"`) |
 | OCR returns empty text | PaddleOCR model weights missing | Verify `backend/paddle_models/` is populated (see Step 3) |
@@ -579,9 +592,10 @@ docker-compose up --build backend -d
 
 | Variable | Location | Default | Description |
 |---|---|---|---|
-| `GEMINI_API_KEY` | `backend/.env` | — | Google Gemini API key (required) |
+| `GROQ_API_KEY` | root `.env` | — | Groq API key (required) |
+| `GROQ_MODEL` | root `.env` | `llama-3.1-8b-instant` | Groq model name |
 | `SECRET_KEY` | `backend/.env` | random string | Flask session secret |
-| `SQLALCHEMY_DATABASE_URI` | `backend/.env` | mysql://root:root@mysql/invoice_db | SQLAlchemy DB URL |
+| `SQLALCHEMY_DATABASE_URI` | `backend/.env` | `mysql+mysqlconnector://root:root@mysql:3306/invoice_db` | SQLAlchemy DB URL |
 | `QDRANT_HOST` | docker-compose env | `qdrant` | Qdrant service hostname |
 | `QDRANT_PORT` | docker-compose env | `6333` | Qdrant service port |
 | `REACT_APP_BACKEND_URL` | `frontend/.env` | `http://localhost:5001` | Backend URL used by React |
@@ -598,7 +612,7 @@ docker-compose up --build backend -d
 2. Upload a vendor invoice PDF or image via the Upload tab
 3. (Optional) Apply image preprocessing:
       Grayscale → Binarize → Denoise → Deskew → Remove Barcodes
-4. Click "Run OCR" — PaddleOCR extracts text, Gemini structures it
+4. Click "Run OCR" — PaddleOCR extracts text, Groq LLM structures it
 5. Review extracted data in the Summary tab:
       Supplier info, Buyer info, Line items, Totals
 6. Invoice is saved to the database with status: pending
