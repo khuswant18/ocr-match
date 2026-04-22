@@ -63,7 +63,7 @@ FINAL RULE: Return ONLY valid JSON matching the schema above. No explanation, no
 """
 
     try:
-        api_key = "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"
+        api_key = os.environ.get("GROQ_API_KEY", "")
         if not api_key:
             logger.error("CRITICAL: GROQ_API_KEY environment variable is missing.")
             return {}
