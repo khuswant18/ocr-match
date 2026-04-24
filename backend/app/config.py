@@ -1,7 +1,9 @@
 from dotenv import load_dotenv
+from pathlib import Path
 import os
 
-load_dotenv()
+# Always load from backend/.env regardless of the working directory.
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 BACKEND_URL = "http://localhost:5000"
 
