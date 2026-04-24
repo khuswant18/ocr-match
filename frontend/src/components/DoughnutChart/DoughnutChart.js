@@ -84,22 +84,16 @@ const DoughnutChart = ({ handleCloseChart, invoice_id }) => {
                   <ArrowBackIcon sx={{ color: "black" }} />
                 </IconButton>
                 <h3 className={classes.title}>{ocrMethod} performance</h3>
-                <MuiTooltip title="Tesseract and PaddleOCR score represents different metrics and are calculated using different methods so they cannot be directly compared based on this score.">
+                <MuiTooltip title="Recognition score represents the probability of the recognized text being correct, calculated by the PaddleOCR model.">
                   <PriorityHighIcon className={classes.icon} />
                 </MuiTooltip>
               </div>
               <div className={classes.chartContainer}>
                 <Doughnut data={data} />
               </div>
-              {ocrMethod === "Tesseract" ? (
-                <MuiTooltip title="Percentage indicating how confident the OCR engine was in the correctness of the recognized text.">
-                  <p className={classes.centerScore}>{score.toFixed(2)}%</p>
-                </MuiTooltip>
-              ) : (
-                <MuiTooltip title="Recognition score represents the probability of the recognized text being correct, calculated by the recognition model.">
-                  <p className={classes.centerScore}>{score.toFixed(2)}%</p>
-                </MuiTooltip>
-              )}
+              <MuiTooltip title="Recognition score represents the probability of the recognized text being correct, calculated by the recognition model.">
+                <p className={classes.centerScore}>{score.toFixed(2)}%</p>
+              </MuiTooltip>
               <p className={classes.paragraph}>
                 Total invoice processing time:{" "}
                 <strong>

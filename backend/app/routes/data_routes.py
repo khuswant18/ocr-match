@@ -14,8 +14,15 @@ def get_invoices_route():
 
 @getData_bp.route('/save-time-other', methods=['POST'])
 def save_time_other_route():
-    invoice_id = request.json['invoice_id']
-    time_other = request.json['time_other'] 
+    payload = request.get_json(silent=True) or {}
+    invoice_id = payload.get('invoice_id') or payload.get('invoiceId') or payload.get('id')
+    time_other = payload.get('time_other')
+
+    if invoice_id is None:
+        return jsonify({'error': 'Missing required field: invoice_id'}), 400
+    if time_other is None:
+        return jsonify({'error': 'Missing required field: time_other'}), 400
+
     success = save_time_other(invoice_id, time_other)
     if success:
         return jsonify({'success': True})
@@ -25,7 +32,12 @@ def save_time_other_route():
 
 @getData_bp.route('/get-performance-data', methods=['POST'])
 def get_performance_data_route():
-    invoice_id = request.json['invoice_id']
+    payload = request.get_json(silent=True) or {}
+    invoice_id = payload.get('invoice_id') or payload.get('invoiceId') or payload.get('id')
+
+    if invoice_id is None:
+        return jsonify({'error': 'Missing required field: invoice_id'}), 400
+
     performance_data = get_performance_data(invoice_id)
     if performance_data:
         return jsonify(performance_data)

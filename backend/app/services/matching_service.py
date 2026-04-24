@@ -198,11 +198,15 @@ def run_three_way_match(po_number):
         
         po_desc_to_code = {data.get("desc", "").lower(): code for code, data in po_items.items() if data.get("desc")}
         
+        already_matched_po_codes = {c for c in inv_items if not c.startswith("unknown_")}
+
         for inv_code, inv_data in list(inv_items.items()):
             if inv_code.startswith("unknown_"):
                 inv_desc = inv_data.get("desc", "").lower()
+                inv_price = inv_data.get("price", 0)
                 matched_po_code = None
 
+                # Pass 1: Vector (semantic) search
                 if vector_enabled and inv_desc:
                     try:
                         candidates = find_ranked_candidates(
@@ -210,28 +214,48 @@ def run_three_way_match(po_number):
                             threshold=RELAXED_THRESHOLD,
                             top_k=10,
                         )
-                        if candidates:
-                            matched_po_code = candidates[0][0]
+                        for code, score in candidates:
+                            if code not in already_matched_po_codes:
+                                matched_po_code = code
+                                break
                     except Exception as e:
                         print(f"[matching_service] Vector search failed for '{inv_desc}': {e}")
-                
+
+                # Pass 2: Fuzzy string match on descriptions
                 if not matched_po_code and inv_desc and po_desc_to_code:
-                    matches = difflib.get_close_matches(inv_desc, po_desc_to_code.keys(), n=1, cutoff=0.4)
-                    if matches:
-                        matched_po_code = po_desc_to_code[matches[0]]
-                
+                    unmatched_descs = {d: c for d, c in po_desc_to_code.items()
+                                       if c not in already_matched_po_codes}
+                    if unmatched_descs:
+                        matches = difflib.get_close_matches(inv_desc, unmatched_descs.keys(), n=1, cutoff=0.35)
+                        if matches:
+                            matched_po_code = unmatched_descs[matches[0]]
+
+                # Pass 3: Price match (only if exactly one unmatched PO item has this price)
                 if not matched_po_code:
-                    prices_match = [c for c, p_data in po_items.items() if abs(p_data["price"] - inv_data["price"]) <= 0.05]
+                    prices_match = [c for c, p_data in po_items.items()
+                                    if abs(p_data["price"] - inv_price) <= 0.05
+                                    and c not in already_matched_po_codes]
                     if len(prices_match) == 1:
                         matched_po_code = prices_match[0]
-                
+
+                # Pass 4: Combined price + partial description match
+                if not matched_po_code and inv_desc:
+                    for po_code, po_data in po_items.items():
+                        if po_code in already_matched_po_codes:
+                            continue
+                        po_desc = po_data.get("desc", "").lower()
+                        price_close = abs(po_data["price"] - inv_price) <= po_data["price"] * 0.1
+                        desc_tokens = set(inv_desc.split()) & set(po_desc.split())
+                        if price_close and len(desc_tokens) >= 2:
+                            matched_po_code = po_code
+                            break
+
                 if matched_po_code:
                     if matched_po_code in inv_items:
-                        # Throw away the ghost OCR duplicate, DO NOT add the quantities
-                        pass
-
+                        pass  # duplicate — discard
                     else:
                         inv_items[matched_po_code] = inv_items.pop(inv_code)
+                        already_matched_po_codes.add(matched_po_code)
 
         ui_results = []
 

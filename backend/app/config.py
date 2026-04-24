@@ -5,7 +5,6 @@ import os
 # Always load from backend/.env regardless of the working directory.
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-INVOICE_LANG = "slk"
 BACKEND_URL = "http://localhost:5000"
 
 

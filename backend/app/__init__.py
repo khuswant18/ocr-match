@@ -1,3 +1,6 @@
+import logging
+import sys
+
 from flask import Flask
 from flask_cors import CORS
 from flask_session import Session
@@ -8,12 +11,26 @@ from .extensions import db
 bcrypt = Bcrypt()
 
 
+def _setup_logging(app):
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter(
+        "[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    app.logger.addHandler(handler)
+    app.logger.setLevel(logging.INFO)
+    logging.getLogger("app").setLevel(logging.INFO)
+    logging.getLogger("app").addHandler(handler)
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(ApplicationConfig)
     app.config.update(ENV='development')
     app.config['SESSION_SQLALCHEMY'] = db
     app.config['CORS_HEADERS'] = 'Content-Type'
+
+    _setup_logging(app)
 
     CORS(app, supports_credentials=True)
     Session(app)
@@ -30,7 +47,6 @@ def create_app():
 def register_blueprints(app):
     from app.routes.preprocessing import preprocessing_bp
     from app.routes.data_routes import getData_bp
-    from app.ocr.tesseractOCR import tesseract_bp
     from app.ocr.paddleOCR import paddleocr_bp
     from app.api.companyAPI import companyAPI_bp
     from app.routes.main_routes import main_bp
@@ -38,7 +54,6 @@ def register_blueprints(app):
 
     app.register_blueprint(preprocessing_bp)
     app.register_blueprint(getData_bp)
-    app.register_blueprint(tesseract_bp)
     app.register_blueprint(paddleocr_bp)
     app.register_blueprint(companyAPI_bp)
     app.register_blueprint(main_bp)
