@@ -30,6 +30,10 @@ const OCRCard = () => {
     } else { 
       formData.append("image", ocrCtx.file); 
     }  
+    
+    if (ocrCtx.poNumber) {
+      formData.append("po_number", ocrCtx.poNumber);
+    }
 
     try {
       const startTime = performance.now();

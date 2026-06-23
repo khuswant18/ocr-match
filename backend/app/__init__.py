@@ -41,6 +41,10 @@ def create_app():
         db.create_all()
     register_blueprints(app)
 
+    # Start the async match worker (daemon thread)
+    from app.workers.match_worker import start_match_worker
+    start_match_worker(app)
+
     return app
 
 
@@ -48,14 +52,15 @@ def register_blueprints(app):
     from app.routes.preprocessing import preprocessing_bp
     from app.routes.data_routes import getData_bp
     from app.ocr.paddleOCR import paddleocr_bp
-    from app.api.companyAPI import companyAPI_bp
     from app.routes.main_routes import main_bp
     from app.routes.matching_routes import matching_bp
+    from app.routes.pipeline_routes import pipeline_bp
 
     app.register_blueprint(preprocessing_bp)
     app.register_blueprint(getData_bp)
     app.register_blueprint(paddleocr_bp)
-    app.register_blueprint(companyAPI_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(matching_bp)
+    app.register_blueprint(pipeline_bp)
+
 

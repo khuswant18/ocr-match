@@ -2,15 +2,9 @@ import io
 import base64
 import cv2
 import numpy as np
-import fitz  # PyMuPDF
+import fitz
 from flask import request
-from uuid import uuid4
 from PIL import Image
-
-
-def get_uuid():
-    return uuid4().hex
-
 
 def convert_to_base64(img):
     img = Image.fromarray(img.astype("uint8"))
@@ -64,6 +58,7 @@ def _deskew(gray: np.ndarray) -> np.ndarray:
 
 
 def preprocess_for_ocr(img: np.ndarray) -> list[np.ndarray]:
+    print("preprocess_for_ocr",img) 
     """
     Return TWO versions of the image for dual-pass OCR:
       1. Light enhancement (good for clean/digital PDFs)
@@ -91,7 +86,7 @@ def preprocess_for_ocr(img: np.ndarray) -> list[np.ndarray]:
     sharpened = cv2.filter2D(enhanced, -1, kernel)
     denoised = cv2.fastNlMeansDenoising(sharpened, h=12, templateWindowSize=7, searchWindowSize=21)
     pass2_rgb = cv2.cvtColor(denoised, cv2.COLOR_GRAY2RGB)
-
+    print("pass1_rgb",pass1_rgb,"pass2_rgb",pass2_rgb)
     return [pass1_rgb, pass2_rgb]
 
 
@@ -116,6 +111,7 @@ def load_images_from_request():
         all_variants = []
         for img in raw_images:
             all_variants.append(preprocess_for_ocr(img))
+        print("all_variants",all_variants)
         return all_variants
 
     npimg = np.frombuffer(file_bytes, np.uint8)
@@ -132,11 +128,3 @@ def load_image():
     if page_variants and len(page_variants) > 0:
         return page_variants[0][0]
     return None
-
-
-def get_files_from_request():
-    pdf_file = request.files['pdf'].read(
-    ) if request.files.get('pdf') else None
-    image_file = request.files['image'].read(
-    ) if request.files.get('image') else None
-    return pdf_file, image_file

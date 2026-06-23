@@ -1,19 +1,5 @@
-import re
 from datetime import datetime
-from flask import session
 from app.models import db, Invoice, InvoiceItem
-
-
-def compute_confidence(data):
-    total_confidence = 0
-    num_confident_words = 0
-    num_words = len(data.get('text', []))
-    for i in range(num_words):
-        if int(data['conf'][i]) > 0:
-            total_confidence += int(data['conf'][i])
-            num_confident_words += 1
-
-    return total_confidence / num_confident_words if num_confident_words > 0 else 0
 
 
 def process_paddleocr_text(result):
@@ -82,6 +68,7 @@ def process_paddleocr_text(result):
         text_lines.append(line_text)
 
     text = "\n".join(text_lines)
+    print("average_confidence, text",average_confidence, text) 
     return average_confidence, text
 
 
@@ -96,76 +83,6 @@ def _safe_float(value, default=0.0):
         return float(clean_val)
     except (ValueError, TypeError):
         return default
-
-
-def _get_valid_po_numbers() -> set:
-    """Fetch all known PO numbers from po_headers for validation."""
-    try:
-        import sys, os
-        sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-        from mysql_db import get_connection
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT po_number FROM po_headers")
-        valid = {str(r[0]).strip() for r in cursor.fetchall()}
-        cursor.close()
-        conn.close()
-        return valid
-    except Exception:
-        return set()
-
-
-def _find_closest_po(candidate: str, valid_pos: set) -> str:
-    """
-    If the candidate PO doesn't exist in the DB, find the closest match
-    by single-digit edit distance. OCR commonly misreads one digit
-    (e.g., 4020737 → 1020737, 4021950 → 4921950).
-    """
-    if candidate in valid_pos:
-        return candidate
-
-    best = None
-    best_dist = 999
-    for po in valid_pos:
-        if len(po) != len(candidate):
-            continue
-        dist = sum(1 for a, b in zip(candidate, po) if a != b)
-        if dist < best_dist:
-            best_dist = dist
-            best = po
-
-    if best and best_dist <= 2:
-        return best
-    return candidate
-
-
-def _clean_po_number(po_string):
-    """
-    Extract the PO number from messy OCR text, then validate against the
-    po_headers table. If the extracted PO doesn't exist but a close match
-    does (1-2 digit difference), auto-correct it.
-
-    No hardcoded PO format assumptions — works with any digit length.
-    """
-    if not po_string:
-        return ""
-    s = str(po_string).strip()
-
-    # Extract the longest digit sequence as the PO candidate
-    digit_groups = re.findall(r'\d+', s)
-    if not digit_groups:
-        return s
-    candidate = max(digit_groups, key=len)
-
-    # Validate against DB if available
-    valid_pos = _get_valid_po_numbers()
-    if valid_pos:
-        corrected = _find_closest_po(candidate, valid_pos)
-        if corrected != candidate:
-            print(f"[PO-AUTOCORRECT] '{candidate}' → '{corrected}' (matched in po_headers)")
-        return corrected
-
-    return candidate
 
 
 def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence, recognition_time, parsing_time, ocr_method):
@@ -203,11 +120,12 @@ def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence,
             except ValueError:
                 continue
 
-    raw_po = parsed_data.get('po_number', '')
-    clean_po = _clean_po_number(raw_po)
+    # PO number is used as-is from the parsed data — the corresponding PO
+    # and receipt already exist in the system, so no autocorrection is needed.
+    po_number = str(parsed_data.get('po_number', '')).strip()
 
     invoice = Invoice(
-        po_number=clean_po,
+        po_number=po_number,
         invoice_number=parsed_data.get('invoice_number', ''),
         invoice_date=parsed_date,
         supplier_name=parsed_data.get('supplier', {}).get('name', ''),

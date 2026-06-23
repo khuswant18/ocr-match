@@ -75,3 +75,17 @@ CREATE TABLE matching_results (
     FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
     FOREIGN KEY (invoice_item_id) REFERENCES invoice_items(id) ON DELETE CASCADE
 ); 
+
+CREATE TABLE match_jobs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    po_number VARCHAR(50) NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending',   -- pending / running / completed / failed
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP NULL,
+    completed_at TIMESTAMP NULL,
+    result_json JSON,
+    error_message TEXT,
+    triggered_by VARCHAR(50) DEFAULT 'api', -- api / octa / ui
+    INDEX idx_status (status),
+    INDEX idx_po (po_number)
+);

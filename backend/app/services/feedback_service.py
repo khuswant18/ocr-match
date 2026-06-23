@@ -1,10 +1,3 @@
-"""
-Builds few-shot learning context from the correction_log table.
-
-Given a supplier name (or raw OCR text to detect the supplier), returns
-a block of text that can be injected into the LLM prompt so it learns
-from past human corrections.
-"""
 import logging
 from collections import defaultdict
 

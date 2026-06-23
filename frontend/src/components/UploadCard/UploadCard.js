@@ -1,5 +1,8 @@
-import { useContext, useState } from "react";
-import { Typography } from "@mui/material";
+import { useContext, useState, useRef } from "react";
+import { Typography, TextField, InputAdornment, Box } from "@mui/material";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { BarLoader } from "react-spinners";
 import ButtonContained from "../StyledComponents/ButtonContained";
 import OCRContext from "../../context/ocr-context";
@@ -11,6 +14,7 @@ const UploadCard = () => {
   const classes = useStyles();
   const ocrCtx = useContext(OCRContext);
   const [isLoading, setIsLoading] = useState(false);
+  const fileInputRef = useRef(null);
 
   const PDFJS = require("pdfjs-dist/webpack");
 
@@ -85,35 +89,81 @@ const UploadCard = () => {
     }
   };
 
+  const handleBoxClick = () => {
+    if (!isLoading && fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
   return (
-    <>
-      <div className={classes.rootContainer}>
-        <Typography variant="h5" sx={{ pt: 2 }}>
-          Upload Document
-        </Typography>
-        <div className={classes.input}>
-          <input
-            type="file"
-            onChange={(e) => handleImageUpload(e)}
-            className={classes.fileInput}
-          />
-        </div>
-        {isLoading && (
-          <div className={classes.loader}>
-            <BarLoader color={COLORS.PRIMARY} width={150} />
-          </div>
+    <div className={classes.rootContainer}>
+      <Typography variant="h5" className={classes.title}>
+        Upload Document
+      </Typography>
+      
+      <TextField
+        fullWidth
+        label="PO Number"
+        variant="outlined"
+        value={ocrCtx.poNumber}
+        onChange={(e) => ocrCtx.setPoNumber(e.target.value)}
+        placeholder="e.g. 4017248"
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <ReceiptLongIcon sx={{ color: COLORS.PRIMARY }} />
+            </InputAdornment>
+          ),
+          sx: { borderRadius: "12px", backgroundColor: "white" }
+        }}
+      />
+
+      <div className={classes.dropzone} onClick={handleBoxClick}>
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleImageUpload}
+          className={classes.fileInput}
+          accept="image/*,application/pdf"
+        />
+        {ocrCtx.file ? (
+           <CheckCircleIcon className={classes.icon} sx={{ color: "#4caf50 !important" }} />
+        ) : (
+           <CloudUploadIcon className={classes.icon} />
         )}
+        <Typography variant="body1" className={classes.fileName}>
+          {ocrCtx.file ? ocrCtx.file.name : "Click to select a file"}
+        </Typography>
+        {!ocrCtx.file && (
+          <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+            Supports JPG, PNG, PDF
+          </Typography>
+        )}
+      </div>
+
+      {isLoading && (
+        <div className={classes.loader}>
+          <BarLoader color={COLORS.PRIMARY} width={150} />
+        </div>
+      )}
+
+      <Box mt={4}>
         <ButtonContained
-          style={{
-            margin: "20px",
-            padding: "5px 35px",
+          style={{ 
+            width: "100%", 
+            padding: "14px", 
+            borderRadius: "12px", 
+            fontSize: "16px", 
+            fontWeight: "bold",
+            letterSpacing: "1px"
           }}
           onClick={() => ocrCtx.setActivePage(1)}
+          disabled={!ocrCtx.file || isLoading}
         >
-          NEXT
+          NEXT STEP
         </ButtonContained>
-      </div>
-    </>
+      </Box>
+    </div>
   );
 };
 

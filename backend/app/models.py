@@ -100,3 +100,22 @@ class MatchingResult(db.Model):
     status = db.Column(db.String(20))
     issue_summary = db.Column(db.Text)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+
+class MatchJob(db.Model):
+    """
+    Async match job queue.  Octa (or the UI) enqueues a job via the pipeline API;
+    a background worker picks it up, runs the 3-way match, and stores the result.
+    """
+    __tablename__ = "match_jobs"
+    id            = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    po_number     = db.Column(db.String(50), nullable=False, index=True)
+    status        = db.Column(db.String(20), default='pending', index=True)
+    created_at    = db.Column(db.DateTime, server_default=db.func.now())
+    started_at    = db.Column(db.DateTime, nullable=True)
+    completed_at  = db.Column(db.DateTime, nullable=True)
+    result_json   = db.Column(db.JSON, nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    triggered_by  = db.Column(db.String(50), default='api')
+    job_type      = db.Column(db.String(30), default='match')  # 'match' or 'extract_and_match'
+    file_path     = db.Column(db.String(500), nullable=True)   # invoice file for extract_and_match

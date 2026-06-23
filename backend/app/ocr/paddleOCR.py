@@ -1,5 +1,4 @@
 import os
-import re
 import json
 import time
 import logging
@@ -13,8 +12,8 @@ from app.models import db, Invoice
 
 logger = logging.getLogger(__name__)
 
-MIN_OCR_CONFIDENCE = 40.0  # reject if average OCR confidence below this %
-MIN_OCR_WORDS = 10         # reject if fewer than this many words extracted
+MIN_OCR_CONFIDENCE = 40.0
+MIN_OCR_WORDS = 10
 
 paddleocr_bp = Blueprint('paddleocr', __name__)
 
@@ -34,6 +33,7 @@ print("[STARTUP] PaddleOCR models loaded successfully.", flush=True)
 
 
 def _merge_ocr_passes(results_list: list) -> list:
+    print("_merge_ocr_passes","results_list",results_list) 
     """
     Merge OCR results from multiple preprocessing passes.
     For overlapping detections (IoU > 0.4), keep the higher-confidence one.
@@ -93,7 +93,7 @@ def process_paddleocr():
 
         ocr_method = 'PaddleOCR'
 
-        # ── STEP 1: Dual-pass OCR on every page ──────────────────────
+
         start_time_recognition = time.time()
 
         all_results = []
@@ -103,13 +103,13 @@ def process_paddleocr():
                 page_result = ocr.ocr(variant_img, cls=True)
                 if page_result and page_result[0]:
                     pass_results.append(page_result)
-
+                                                        
             merged = _merge_ocr_passes(pass_results) if pass_results else []
             if merged:
                 all_results.extend(merged)
 
         recognition_time = time.time() - start_time_recognition
-
+        print("recognition_time",recognition_time) 
         if not all_results:
             return jsonify({'error': 'OCR failed to extract any text from the document.'}), 400
 
@@ -138,7 +138,7 @@ def process_paddleocr():
         print(text)
         print("=" * 60 + "\n")
 
-        # ── STEP 2: LLM parsing ───────────────────────────────────────
+
         start_time_parsing = time.time()
         print("[LLM] Sending OCR text to Groq for structured extraction...")
 
@@ -156,8 +156,12 @@ def process_paddleocr():
                     'raw_output': parsed_data
                 }), 500
 
-        # ── STEP 2b: Self-verification — fix qty/price math errors ───
+
         if isinstance(parsed_data, dict):
+            po_number_override = request.form.get("po_number")
+            if po_number_override:
+                parsed_data["po_number"] = po_number_override
+                
             parsed_data = verify_and_fix(parsed_data, text)
 
         print("\n" + "=" * 60)
@@ -166,27 +170,8 @@ def process_paddleocr():
         print(json.dumps(parsed_data, indent=4))
         print("=" * 60 + "\n")
 
-        # ── STEP 2c: Filename-based PO hint ──────────────────────────
-        # If the filename contains a long digit sequence that looks like
-        # a PO, and the LLM extracted a different one, prefer the filename.
-        # Works with any PO length (6-10 digits).
-        if isinstance(parsed_data, dict):
-            filename_po = None
-            for key in ('file', 'pdf'):
-                f = request.files.get(key)
-                if f and f.filename:
-                    digit_groups = re.findall(r'\d{6,10}', f.filename)
-                    if digit_groups:
-                        filename_po = max(digit_groups, key=len)
-                        break
 
-            if filename_po:
-                llm_po = str(parsed_data.get("po_number", "")).strip()
-                llm_digits = re.findall(r'\d+', llm_po)
-                llm_po_clean = max(llm_digits, key=len) if llm_digits else ""
-                if llm_po_clean != filename_po:
-                    parsed_data["po_number"] = filename_po
-                    logger.info(f"[PO-FIX] filename={filename_po} overrides LLM={llm_po_clean}")
+
 
         response = {
             'text': text,
@@ -198,9 +183,9 @@ def process_paddleocr():
             'average_confidence': average_confidence * 100
         }
 
-        # ── STEP 3: Save to DB if it looks like an invoice ────────────
+
         if isinstance(parsed_data, dict) and check_if_invoice(parsed_data):
-            # Duplicate detection — skip if this exact invoice_number already exists
+
             inv_num = parsed_data.get("invoice_number", "").strip()
             if inv_num:
                 existing = Invoice.query.filter_by(invoice_number=inv_num).first()

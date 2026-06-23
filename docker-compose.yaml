@@ -22,7 +22,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - '5001:5000'
+      - '4333:4333'
     env_file:
       - ./backend/.env
     environment:
@@ -52,7 +52,7 @@ services:
     ports:
       - '3000:3000'
     environment:
-      - REACT_APP_BACKEND_URL=http://localhost:5001
+      - REACT_APP_BACKEND_URL=http://localhost:4333
     volumes:
       - ./frontend/src:/app/src
     stdin_open: true

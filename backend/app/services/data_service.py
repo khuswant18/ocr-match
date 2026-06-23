@@ -26,12 +26,6 @@ def get_invoices(user_id=None):
     return serializable_invoices(invoices)
 
 
-def save_time_other(invoice_id, time_other):
-    invoice = Invoice.query.get(invoice_id)
-    if not invoice:
-        return False
-    return True
-
 
 def get_performance_data(invoice_id):
     invoice = Invoice.query.get(invoice_id)

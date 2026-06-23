@@ -19,7 +19,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# ── LLM provider config (read fresh on every call) ────────────────────────
+
 
 def _groq_api_key() -> str:
     return os.environ.get("GROQ_API_KEY", "")
@@ -43,7 +43,7 @@ MAX_RETRIES = 3
 RETRY_BACKOFF = 2
 
 
-# ── JSON extraction helper ────────────────────────────────────────────────
+
 
 def _extract_json_payload(text: str) -> str:
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
@@ -56,7 +56,7 @@ def _extract_json_payload(text: str) -> str:
     return text.strip()
 
 
-# ── The invoice-extraction prompt (fully generic) ─────────────────────────
+
 
 SYSTEM_PROMPT = """You are an expert invoice data-extraction engine.
 You receive noisy OCR text from scanned invoices. The text uses tabs
@@ -155,7 +155,7 @@ USER_PROMPT_TEMPLATE = """Extract ALL structured data from the OCR text below.
 }}"""
 
 
-# ── Post-processing (pure math, no hardcoded domain knowledge) ────────────
+
 def verify_and_fix(parsed: dict, ocr_text: str = "") -> dict:
     """
     Rule-based fixes using only arithmetic — no domain assumptions.
@@ -170,35 +170,35 @@ def verify_and_fix(parsed: dict, ocr_text: str = "") -> dict:
         up = _to_float(item.get("unit_price", 0))
         tp = _to_float(item.get("total_price", 0))
 
-        # Normalize OCR quantity text (e.g. "2.00 1.00") into a numeric value.
+
         if qty > 0:
             item["quantity"] = int(qty) if float(qty).is_integer() else round(qty, 3)
 
         if qty == 0 and up == 0 and tp == 0:
             continue
 
-        # qty × unit_price should ≈ total_price
+
         if qty > 0 and up > 0 and tp > 0:
             expected = qty * up
             ratio = expected / tp if tp != 0 else 999
-            if ratio > 2.0 or ratio < 0.5:
+            if ratio >= 1.5 or ratio < 0.5:
                 candidate_qty = tp / up
                 if 1 <= candidate_qty <= 500 and candidate_qty == int(candidate_qty):
                     item["quantity"] = int(candidate_qty)
                     qty = int(candidate_qty)
 
-        # Fill missing total from qty × price
+
         if _to_float(item.get("total_price", 0)) == 0 and qty > 0 and up > 0:
             item["total_price"] = round(qty * up, 2)
 
-        # Fill missing price from total / qty
+
         if _to_float(item.get("unit_price", 0)) == 0 and qty > 0 and _to_float(item.get("total_price", 0)) > 0:
             item["unit_price"] = round(_to_float(item["total_price"]) / qty, 2)
 
         fixed_items.append(item)
 
-    # Cross-check: infer price for items with qty but no price using the
-    # difference between the stated subtotal/gross and the known item sum.
+
+
     financials = parsed.get("financials", {})
     if isinstance(financials, dict) and fixed_items:
         gross = max(
@@ -227,17 +227,17 @@ def verify_and_fix(parsed: dict, ocr_text: str = "") -> dict:
 
     parsed["items"] = fixed_items
 
-    # OCR-aware field correction: prefer stronger PO candidates and fill missing TINs.
+
     if ocr_text:
         _apply_ocr_field_fallbacks(parsed, ocr_text)
 
-    # OCR-guided price rebalance: keeps quantity as extracted, but fixes
-    # duplicated/wrong unit prices by matching table numbers to subtotal.
+
+
     if ocr_text and isinstance(financials, dict) and fixed_items:
         _rebalance_item_prices_from_ocr(fixed_items, financials, ocr_text)
         _fix_cross_line_item_bundle_swap(fixed_items, ocr_text)
 
-    # Fill missing total_amount from item sum
+
     if isinstance(financials, dict):
         if _to_float(financials.get("total_amount", 0)) == 0 and fixed_items:
             s = sum(_to_float(it.get("total_price", 0)) for it in fixed_items)
@@ -245,7 +245,7 @@ def verify_and_fix(parsed: dict, ocr_text: str = "") -> dict:
                 financials["total_amount"] = round(s, 2)
                 parsed["financials"] = financials
 
-    # PO cleanup — extract the longest digit sequence, validate against DB
+
     po = str(parsed.get("po_number", "")).strip()
     digits = re.findall(r'\d+', po)
     if digits:
@@ -261,7 +261,7 @@ def _to_float(val) -> float:
         raw = str(val).replace(",", "").replace("₱", "").replace("$", "").strip()
         return float(raw)
     except (ValueError, TypeError):
-        # OCR often emits values like "2.00 1.00" or "1,703.70*".
+
         text = str(val).replace(",", "")
         match = re.search(r'-?\d+(?:\.\d+)?', text)
         if not match:
@@ -275,11 +275,11 @@ def _to_float(val) -> float:
 def _extract_tins_with_context(text: str) -> list[tuple[int, str, str]]:
     tins = []
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    # Common PH TIN forms with separators or plain digits.
+
     tin_pattern = re.compile(r'\b\d{3}-\d{3}-\d{3}-\d{3,5}\b|\b\d{12,15}\b')
     for idx, line in enumerate(lines):
         for match in tin_pattern.findall(line):
-            # Normalize frequent OCR typo: TTN -> TIN.
+
             normalized = re.sub(r'\bttn\b', 'tin', line.lower())
             tins.append((idx, match, normalized))
     return tins
@@ -333,7 +333,7 @@ def _pick_best_po_from_ocr(text: str, current_po: str = "") -> str:
 
         for g in groups:
             local_score = score
-            # Candidate-specific context on the same OCR line.
+
             if re.search(rf's\.\s*o\.\s*no\s*[:#-]?\s*{re.escape(g)}', lower):
                 local_score -= 80
             if re.search(rf'shipping\s*instructions\s*[:#-]?\s*{re.escape(g)}', lower):
@@ -341,7 +341,7 @@ def _pick_best_po_from_ocr(text: str, current_po: str = "") -> str:
             if re.search(rf'\b{re.escape(g)}[a-z]{{2,4}}\b', lower):
                 local_score += 20
 
-            # Prefer longer PO-like identifiers over short shipping refs.
+
             length_bonus = min(len(g), 10)
             candidates.append((local_score + length_bonus, g))
 
@@ -376,7 +376,7 @@ def _apply_ocr_field_fallbacks(parsed: dict, ocr_text: str) -> None:
     supplier = parsed.get("supplier") or {}
     buyer = parsed.get("buyer") or {}
 
-    # PO correction: avoid short shipping refs when a stronger order-id exists.
+
     best_po = _pick_best_po_from_ocr(ocr_text, parsed.get("po_number", ""))
     if best_po:
         parsed["po_number"] = best_po
@@ -390,7 +390,7 @@ def _apply_ocr_field_fallbacks(parsed: dict, ocr_text: str) -> None:
     supplier_tin = str(supplier.get("tin", "")).strip()
     buyer_tin = str(buyer.get("tin", "")).strip()
 
-    # Upgrade supplier TIN when OCR contains a richer equivalent value.
+
     supplier_candidates = [
         tin for _, tin, line in tins
         if "vat" in line or "tin" in line
@@ -407,7 +407,7 @@ def _apply_ocr_field_fallbacks(parsed: dict, ocr_text: str) -> None:
             supplier_tin = tins[0][1]
 
     if not buyer_tin:
-        # Prefer explicit buyer-side TIN labels first.
+
         buyer_label_candidates = [
             tin for _, tin, line in tins
             if "tin" in line and any(k in line for k in ("soldto", "sold to", "buyer", "customer", "address"))
@@ -464,12 +464,12 @@ def _extract_price_candidates_from_item_section(ocr_text: str) -> list[float]:
     if not section:
         return []
 
-    # Currency-like numbers (with 2 decimals) in item table only.
+
     raw_nums = re.findall(r'\d{1,3}(?:,\d{3})*\.\d{2}|\d+\.\d{2}', section)
     vals: list[float] = []
     for token in raw_nums:
         v = _to_float(token)
-        # Keep realistic per-line-item prices/totals.
+
         if 100 <= v <= 100000:
             vals.append(round(v, 2))
     return vals
@@ -484,7 +484,7 @@ def _rebalance_item_prices_from_ocr(items: list[dict], financials: dict, ocr_tex
     if not price_candidates:
         return
 
-    # Only apply when there is evidence of duplicated/misaligned pricing.
+
     qty1_items = [it for it in items if _to_float(it.get("quantity", 0)) == 1]
     repeated_qty1_prices = {}
     for it in qty1_items:
@@ -493,18 +493,18 @@ def _rebalance_item_prices_from_ocr(items: list[dict], financials: dict, ocr_tex
     if not any(count >= 2 for count in repeated_qty1_prices.values()):
         return
 
-    # Build per-item options from OCR table numbers and existing value.
+
     options_per_item: list[list[float]] = []
     for it in items:
         qty = _to_float(it.get("quantity", 0))
         existing = round(_to_float(it.get("unit_price", 0)), 2)
         opts = {existing} if existing > 0 else set()
 
-        # Candidate as direct unit price.
+
         for p in price_candidates:
             opts.add(round(p, 2))
 
-        # Candidate inferred from total-like token / qty.
+
         if qty > 0:
             for t in price_candidates:
                 inferred = round(t / qty, 2)
@@ -513,9 +513,9 @@ def _rebalance_item_prices_from_ocr(items: list[dict], financials: dict, ocr_tex
 
         options_per_item.append(sorted(opts))
 
-    # Search for the combination closest to subtotal.
+
     best_combo = None
-    best_score = (float("inf"), float("inf"))  # (subtotal_diff, change_penalty)
+    best_score = (float("inf"), float("inf"))
 
     base_prices = [round(_to_float(it.get("unit_price", 0)), 2) for it in items]
 
@@ -523,8 +523,8 @@ def _rebalance_item_prices_from_ocr(items: list[dict], financials: dict, ocr_tex
         nonlocal best_combo, best_score
         if i == len(items):
             diff = abs(round(running_total - target_subtotal, 2))
-            # Prefer minimal change from current parse, weighted to keep
-            # earlier rows stable when multiple combos match subtotal.
+
+
             penalty = 0.0
             n = len(base_prices)
             for idx, p in enumerate(current_prices):
@@ -541,7 +541,7 @@ def _rebalance_item_prices_from_ocr(items: list[dict], financials: dict, ocr_tex
             return
 
         for p in options_per_item[i]:
-            # Basic pruning.
+
             if running_total + (qty * p) - target_subtotal > 5000:
                 continue
             _dfs(i + 1, current_prices + [p], running_total + (qty * p))
@@ -550,7 +550,7 @@ def _rebalance_item_prices_from_ocr(items: list[dict], financials: dict, ocr_tex
     if not best_combo or best_score[0] > 2.0:
         return
 
-    # Avoid assigning the same price to multiple qty=1 lines when better split exists.
+
     seen_qty1: set[float] = set()
     for idx, it in enumerate(items):
         qty = _to_float(it.get("quantity", 0))
@@ -586,8 +586,8 @@ def _find_best_item_line_index(lines: list[str], desc: str) -> int:
 
 def _extract_qty_tokens(line: str) -> list[float]:
     vals: list[float] = []
-    # Restrict to decimal qty forms (e.g., 1.00, 2.00) to avoid
-    # matching product-size tokens like "6" or "1k/10".
+
+
     for token in re.findall(r'\b\d{1,2}\.\d{2}\b', line):
         v = _to_float(token)
         if 0 < v <= 20:
@@ -618,8 +618,8 @@ def _fix_cross_line_item_bundle_swap(items: list[dict], ocr_text: str) -> None:
         if prev_idx == -1 or curr_idx == -1 or next_idx == -1:
             continue
 
-        # Pattern: item[i] shares line with previous description,
-        # item[i+1] appears on next line where multiple qty tokens exist.
+
+
         if curr_idx != prev_idx or next_idx <= curr_idx:
             continue
 
@@ -630,15 +630,15 @@ def _fix_cross_line_item_bundle_swap(items: list[dict], ocr_text: str) -> None:
 
         qi = _to_float(items[i].get("quantity", 0))
         qj = _to_float(items[i + 1].get("quantity", 0))
-        # Swap when the second item currently has the larger qty bundle;
-        # in this pattern that larger bundle belongs to the carried-over item.
+
+
         if qi <= 1 and qj > 1:
             keys = ("quantity", "unit_price", "total_price")
             for k in keys:
                 items[i][k], items[i + 1][k] = items[i + 1].get(k), items[i].get(k)
 
 
-# ── API helpers ───────────────────────────────────────────────────────────
+
 
 def _call_groq(messages: list[dict]) -> dict | None:
     api_key = _groq_api_key()
@@ -705,11 +705,11 @@ def _call_openrouter(messages: list[dict]) -> dict | None:
         content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "{}")
         return json.loads(_extract_json_payload(content))
     except Exception as e:
-        logger.error(f"OpenRouter fallback failed: {e}")
+        logger.error(f"OpenRouter fallback failed {e}")
         return None
 
 
-# ── Public API ────────────────────────────────────────────────────────────
+
 
 def parse_with_gemini(ocr_text: str, supplier_hint: str = "") -> dict:
     """
@@ -720,7 +720,7 @@ def parse_with_gemini(ocr_text: str, supplier_hint: str = "") -> dict:
         logger.warning("Empty OCR text passed to LLM parser.")
         return {}
 
-    # Build few-shot context from past corrections
+
     feedback_block = ""
     try:
         from app.services.feedback_service import get_few_shot_context
@@ -753,10 +753,3 @@ def parse_with_gemini(ocr_text: str, supplier_hint: str = "") -> dict:
 
     logger.error("All LLM providers failed.")
     return {}
-
-
-def parse_with_groq(ocr_text: str) -> dict:
-    return parse_with_gemini(ocr_text)
-
-def parse_with_openrouter(ocr_text: str) -> dict:
-    return parse_with_gemini(ocr_text)

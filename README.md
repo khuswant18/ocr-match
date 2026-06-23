@@ -65,7 +65,7 @@ OCR-Match automates the accounts-payable verification workflow:
                         │ HTTP (port 3000)
                         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   Flask Backend  :5000                      │
+│                   Flask Backend  :4333                      │
 │                                                             │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
 │  │ Preprocessing│  │  OCR Engine  │  │  Match Engine    │  │
@@ -239,7 +239,7 @@ Re-running the match then uses the manually assigned code.
 |---|---|---|
 | MySQL | mysql:8.0 | 3307 (host) → 3306 |
 | Qdrant | qdrant/qdrant:latest | 6333 |
-| Flask Backend | python:3.10-slim-bullseye | 5001 (host) → 5000 |
+| Flask Backend | python:3.10-slim-bullseye | 4333 (host) → 4333 |
 | React Frontend | node:latest | 3000 |
 
 ---
@@ -390,7 +390,7 @@ All 4 services should show `Up`:
 | Service | URL |
 |---|---|
 | React frontend | http://localhost:3000 |
-| Flask API | http://localhost:5001 |
+| Flask API | http://localhost:4333 |
 | Qdrant dashboard | http://localhost:6333/dashboard |
 | MySQL | localhost:3307 (user: root, pass: root) |
 

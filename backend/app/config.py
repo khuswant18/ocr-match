@@ -5,7 +5,7 @@ import os
 # Always load from backend/.env regardless of the working directory.
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-BACKEND_URL = "http://localhost:5000"
+BACKEND_URL = "http://localhost:4333"
 
 
 class ApplicationConfig:
