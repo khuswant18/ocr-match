@@ -8,7 +8,6 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 2
 
-
 def _run_extraction_via_http(file_path, po_number):
     """
     Trigger OCR extraction by calling the /paddleOCR endpoint internally.

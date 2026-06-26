@@ -11,7 +11,6 @@ class Invoice(db.Model):
     supplier_name = db.Column(db.String(255))
     store_code = db.Column(db.String(20))
     
-    # Financials
     net_amount = db.Column(db.Numeric(12, 2)) 
     tax_amount = db.Column(db.Numeric(12, 2))
     discount_amount = db.Column(db.Numeric(12, 2))
@@ -20,7 +19,6 @@ class Invoice(db.Model):
     status = db.Column(db.String(20), default='pending')
     raw_json = db.Column(db.JSON)
 
-    # --- OCR Audit Trail (Required for your paddleOCR.py script) ---
     ocr_text = db.Column(db.Text)
     pdf_file_path = db.Column(db.String(500))
     img_file_path = db.Column(db.String(500))
@@ -41,7 +39,6 @@ class InvoiceItem(db.Model):
     product_code = db.Column(db.String(50))
     quantity = db.Column(db.Numeric(10, 2))
     
-    # Upgraded to 4 decimals to match po_lines precision (e.g., 1357.14)
     unit_price = db.Column(db.Numeric(10, 4)) 
     total_price = db.Column(db.Numeric(12, 2))
     
@@ -58,17 +55,13 @@ class CorrectionLog(db.Model):
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoices.id', ondelete="CASCADE"), nullable=True)
     supplier_name = db.Column(db.String(255))
 
-    # What type of correction: "field", "item_qty", "item_price", "item_desc", "product_code"
     correction_type = db.Column(db.String(50))
 
-    # What the OCR/LLM originally extracted
     field_name = db.Column(db.String(100))
     original_value = db.Column(db.Text)
 
-    # What the user corrected it to
     corrected_value = db.Column(db.Text)
 
-    # For product_code corrections: the invoice item description that was matched
     item_description = db.Column(db.Text)
 
     created_at = db.Column(db.DateTime, server_default=db.func.now())
@@ -84,14 +77,12 @@ class MatchingResult(db.Model):
     grn_number = db.Column(db.String(50))
     product_code = db.Column(db.String(50))
     
-    # --- Quantity Matching ---
     po_qty = db.Column(db.Numeric(12, 2))
     grn_qty = db.Column(db.Numeric(12, 2))
     invoice_qty = db.Column(db.Numeric(12, 2))
     qty_variance = db.Column(db.Numeric(12, 2))
     is_qty_match = db.Column(db.Boolean)
     
-    # --- Price Matching ---
     po_price = db.Column(db.Numeric(12, 4))
     invoice_price = db.Column(db.Numeric(12, 4))
     price_variance = db.Column(db.Numeric(12, 4))

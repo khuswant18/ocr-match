@@ -31,7 +31,6 @@ ocr = PaddleOCR(
 )
 print("[STARTUP] PaddleOCR models loaded successfully.", flush=True)
 
-
 def _merge_ocr_passes(results_list: list) -> list:
     print("_merge_ocr_passes","results_list",results_list) 
     """

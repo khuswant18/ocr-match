@@ -17,7 +17,6 @@ const HistoryPage = () => {
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
   const { enqueueSnackbar } = useSnackbar();
 
-  
   useEffect(() => { 
     (async () => {
       await fetchInvoiceData();

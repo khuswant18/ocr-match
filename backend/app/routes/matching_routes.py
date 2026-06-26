@@ -22,7 +22,6 @@ def update_item_code():
         return jsonify({"error": "invoice_item_id and product_code are required"}), 400
 
     try:
-        # Fetch the item BEFORE updating so we can log the correction
         item = InvoiceItem.query.get(invoice_item_id)
         if item:
             invoice = Invoice.query.get(item.invoice_id)

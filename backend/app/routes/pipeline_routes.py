@@ -12,7 +12,6 @@ pipeline_bp = Blueprint('pipeline', __name__)
 PIPELINE_UPLOAD_FOLDER = 'uploads/pipeline/'
 os.makedirs(PIPELINE_UPLOAD_FOLDER, exist_ok=True)
 
-
 @pipeline_bp.route('/api/pipeline/match', methods=['POST'])
 def enqueue_match():
     data = request.get_json(silent=True) or {}
@@ -38,7 +37,6 @@ def enqueue_match():
         "po_number": job.po_number,
         "status": job.status,
     }), 202
-
 
 @pipeline_bp.route('/api/pipeline/extract-and-match', methods=['POST'])
 def extract_and_match():
@@ -80,7 +78,6 @@ def extract_and_match():
         "job_type": job.job_type,
     }), 202
 
-
 @pipeline_bp.route('/api/pipeline/job/<int:job_id>', methods=['GET'])
 def get_job_status(job_id):
     job = MatchJob.query.get(job_id)
@@ -103,7 +100,6 @@ def get_job_status(job_id):
         response["error"] = job.error_message
 
     return jsonify(response), 200
-
 
 @pipeline_bp.route('/api/pipeline/jobs', methods=['GET'])
 def list_jobs():

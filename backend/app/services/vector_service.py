@@ -17,34 +17,20 @@ import re
 from qdrant_client import QdrantClient
 
 COLLECTION = "po_descriptions"
-
-# Primary threshold — high-confidence match.
 COMBINED_THRESHOLD = 0.55
-
-# Relaxed threshold for second-pass (remaining unknowns vs remaining PO items).
 RELAXED_THRESHOLD = 0.40
-
-# Weight split between semantic (vector) and lexical (token overlap) scoring.
 VECTOR_WEIGHT = 0.50
 TOKEN_WEIGHT = 0.50
 
 _client: QdrantClient | None = None
 
-# ---------------------------------------------------------------------------
-# Abbreviation / noise maps for food-distribution product descriptions
-#
-# Built from the full po_lines.product_full_desc corpus.  Both the PO side
-# and the invoice side are normalised, so we need expansions in both
-# directions (abbreviated PO → full word, full invoice → same full word).
-# ---------------------------------------------------------------------------
-
 _ABBREVIATIONS: dict[str, str] = {
-    # Hotdog variants
+
     "hdog": "hotdog", "hdg": "hotdog", "hd": "hotdog", "htdg": "hotdog",
-    # Protein type
+
     "chkn": "chicken", "chckn": "chicken", "chcken": "chicken",
     "prk": "pork", "brgr": "burger",
-    # Product type
+
     "chrzo": "chorizo", "tcno": "tocino", "tcn": "tocino",
     "lnchnmeat": "luncheon meat", "lncnmt": "luncheon meat",
     "lnchmt": "luncheon meat",
@@ -56,7 +42,7 @@ _ABBREVIATIONS: dict[str, str] = {
     "crnd": "corned", "crn": "corned",
     "frzn": "frozen", "frzn": "frozen",
     "chns": "chinese", "styl": "style",
-    # Size / grade
+
     "prm": "premium", "prem": "premium",
     "reg": "regular", "rg": "regular",
     "jmb": "jumbo", "jmbo": "jumbo", "jum": "jumbo", "jb": "jumbo",
@@ -65,44 +51,36 @@ _ABBREVIATIONS: dict[str, str] = {
     "bnls": "boneless", "skg": "skinless",
     "spcd": "spiced", "spcy": "spicy",
     "smky": "smoky",
-    # Packaging / processing
+
     "ctl": "cocktails", "cktails": "cocktails",
     "wch": "with cheese", "wchs": "with cheese", "wcheese": "with cheese",
     "cheesedog": "cheesedog", "chesedog": "cheesedog",
     "chsedog": "cheesedog",
-    # Brand abbreviations vendors use on invoices
+
     "vir": "virginia", "virgnia": "virginia", "vrgna": "virginia",
     "vfi": "virginia",
     "el": "el", "rncho": "rancho",
     "wnnr": "winner",
-    # Body parts / descriptors that come up in meat products
+
     "ln": "lean", "all": "all",
-    # Cooking style
+
     "hngurian": "hungarian", "hngarian": "hungarian",
     "nwyrk": "new york",
-    # Misc
+
     "pa": "party", "karage": "karaage",
     "chikn": "chicken", "chcknppprs": "chicken poppers",
 }
 
-# Brand aliases: alternative brand names that vendors print on invoices
-# for the same manufacturer products.  Key = normalised invoice brand,
-# value = list of canonical brand tokens to inject.
 _BRAND_ALIASES: dict[str, list[str]] = {
     "happy booster": ["virginia", "premium"],
     "booster": ["virginia", "premium"],
 }
 
-# Words that describe packaging format, not the product itself.
 _NOISE_WORDS: set[str] = {
     "ldld", "ladlad", "pack", "bundle", "pcs", "pc", "s",
     "x", "de", "d",
 }
 
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 def _get_client() -> QdrantClient:
     global _client
@@ -131,9 +109,8 @@ def _normalize(text: str) -> str:
     """
     text = text.lower()
 
-    # Pull out parenthetical hints — e.g. "(Premium Hotdog)" → "premium hotdog"
     hints = re.findall(r"\(([^)]+)\)", text)
-    text = re.sub(r"\([^)]*\)", " ", text)  # remove the parens from original
+    text = re.sub(r"\([^)]*\)", " ", text)  
     if hints:
         text = " ".join(hints) + " " + text
 
@@ -141,13 +118,13 @@ def _normalize(text: str) -> str:
 
     # Strip weight/pack patterns: "1kg", "2k", "4.52k", "6s", "12x1kg", "155g"
     # Also handle glued patterns like "JUM1KG" — split letters from digits first
-    text = re.sub(r"([a-z])(\d)", r"\1 \2", text)  # "jum1kg" → "jum 1kg"
-    text = re.sub(r"(\d)([a-z])", r"\1 \2", text)  # "200g"  → "200 g" (for next pass)
+    text = re.sub(r"([a-z])(\d)", r"\1 \2", text)  
+    text = re.sub(r"(\d)([a-z])", r"\1 \2", text)  
     text = re.sub(r"\b\d+(\.\d+)?\s*x\s*\d+(\.\d+)?\s*k(g)?\b", " ", text)
     text = re.sub(r"\b\d+(\.\d+)?\s*k(g)?\b", " ", text)
     text = re.sub(r"\b\d+(\.\d+)?\s*g\b", " ", text)
-    text = re.sub(r"\b\d+(\.\d+)?\s*s\b", " ", text)  # "6s" packs
-    text = re.sub(r"\b\d+(\.\d+)?\b", " ", text)       # any remaining numbers
+    text = re.sub(r"\b\d+(\.\d+)?\s*s\b", " ", text) 
+    text = re.sub(r"\b\d+(\.\d+)?\b", " ", text)       
 
     text = re.sub(r"[^a-z\s]", "", text)
 
@@ -176,15 +153,6 @@ def _normalize(text: str) -> str:
 
 
 def _token_overlap(a: str, b: str) -> float:
-    """
-    Soft token overlap — rewards partial matches more generously than Jaccard.
-
-    Score = (2 * |intersection|) / (|A| + |B|)   (Dice coefficient)
-
-    Plus a substring bonus: if every token of the shorter set appears as a
-    substring in some token of the longer set, add 0.15.
-    This handles cases like "cheese hotdog" matching "cheesedog jumbo".
-    """
     set_a = set(a.split())
     set_b = set(b.split())
     if not set_a or not set_b:
@@ -193,8 +161,6 @@ def _token_overlap(a: str, b: str) -> float:
     intersection = set_a & set_b
     dice = (2.0 * len(intersection)) / (len(set_a) + len(set_b))
 
-    # Substring bonus: check if the unmatched tokens of the shorter side
-    # appear inside tokens of the longer side
     shorter, longer = (set_a, set_b) if len(set_a) <= len(set_b) else (set_b, set_a)
     unmatched = shorter - intersection
     if unmatched:
@@ -215,16 +181,9 @@ def _combined_score(vector_score: float, a_norm: str, b_norm: str) -> float:
     return VECTOR_WEIGHT * vector_score + TOKEN_WEIGHT * token_score
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 def index_po_items(po_items: dict) -> None:
-    """
-    Embed every PO item description via fastembed and upsert into Qdrant.
-    Recreates the collection on each match run so it always reflects the
-    current PO's items.
-    """
+
     client = _get_client()
 
     if client.collection_exists(COLLECTION):

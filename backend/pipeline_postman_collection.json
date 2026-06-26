@@ -1,0 +1,140 @@
+{
+	"info": {
+		"name": "OCR-Match Pipeline APIs",
+		"description": "Postman collection for testing the background pipeline jobs for extracting and matching invoices.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Trigger Match (JSON)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"po_number\": \"4017736\",\n    \"triggered_by\": \"postman_test\"\n}"
+				},
+				"url": {
+					"raw": "http://localhost:5000/api/pipeline/match",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "5000",
+					"path": [
+						"api",
+						"pipeline",
+						"match"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "2. Extract and Match (Form-Data)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "po_number",
+							"value": "4017736",
+							"type": "text"
+						},
+						{
+							"key": "file",
+							"type": "file",
+							"src": []
+						},
+						{
+							"key": "triggered_by",
+							"value": "postman_test",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "http://localhost:5000/api/pipeline/extract-and-match",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "5000",
+					"path": [
+						"api",
+						"pipeline",
+						"extract-and-match"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "3. Get Job Status",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:5000/api/pipeline/job/1",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "5000",
+					"path": [
+						"api",
+						"pipeline",
+						"job",
+						"1"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "4. List All Jobs",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:5000/api/pipeline/jobs?limit=10",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "5000",
+					"path": [
+						"api",
+						"pipeline",
+						"jobs"
+					],
+					"query": [
+						{
+							"key": "limit",
+							"value": "10"
+						},
+						{
+							"key": "status",
+							"value": "completed",
+							"disabled": true
+						},
+						{
+							"key": "po_number",
+							"value": "4017736",
+							"disabled": true
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
