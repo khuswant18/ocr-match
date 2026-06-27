@@ -110,3 +110,4 @@ class MatchJob(db.Model):
     triggered_by  = db.Column(db.String(50), default='api')
     job_type      = db.Column(db.String(30), default='match')  # 'match' or 'extract_and_match'
     file_path     = db.Column(db.String(500), nullable=True)   # invoice file for extract_and_match
+    input_json    = db.Column(db.JSON, nullable=True)          # the full PO/GRN envelope (extract_and_match)

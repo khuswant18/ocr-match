@@ -42,7 +42,7 @@ def _process_one_job(app):
     """
     with app.app_context():
         from app.models import db, MatchJob
-        from app.services.matching_service import run_three_way_match
+        from app.services.matching_service import run_three_way_match, run_match_from_payload
 
         job = (
             MatchJob.query
@@ -63,7 +63,16 @@ def _process_one_job(app):
                 invoice_id, parsed_data = _run_extraction_via_http(job.file_path, job.po_number)
                 logger.info(f"[WORKER] Extraction done for job #{job.id}, invoice_id={invoice_id}")
 
-            result = run_three_way_match(job.po_number)
+                env = job.input_json or {}
+                result = run_match_from_payload(
+                    job.po_number,
+                    env.get("po_lines"),
+                    env.get("pol_grn"),
+                    parsed_data,
+                    invoice_id,
+                )
+            else:
+                result = run_three_way_match(job.po_number)
 
             if "error" in result:
                 job.status = 'failed'

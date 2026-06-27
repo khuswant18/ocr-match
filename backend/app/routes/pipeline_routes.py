@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import logging
 from flask import Blueprint, jsonify, request
@@ -40,14 +41,28 @@ def enqueue_match():
 
 @pipeline_bp.route('/api/pipeline/extract-and-match', methods=['POST'])
 def extract_and_match():
-    po_number = request.form.get('po_number')
-    if not po_number:
-        return jsonify({"error": "po_number is required"}), 400
-
     file = request.files.get('file') or request.files.get('image')
     if not file or not file.filename:
         return jsonify({"error": "An invoice file is required (form-data key: 'file' or 'image')"}), 400
 
+    raw_data = request.form.get('data')
+    if not raw_data:
+        return jsonify({"error": "A 'data' form field with the PO/GRN JSON envelope is required"}), 400
+    try:
+        envelope = json.loads(raw_data)
+    except (ValueError, TypeError):
+        return jsonify({"error": "The 'data' field is not valid JSON"}), 400
+    if not isinstance(envelope, dict):
+        return jsonify({"error": "The 'data' envelope must be a JSON object"}), 400
+
+    po_number = (envelope.get('po_header') or {}).get('po_number')
+    if po_number is None or str(po_number).strip() == '':
+        return jsonify({"error": "po_header.po_number is required in the 'data' envelope"}), 400
+    po_number = str(po_number).strip()
+
+    po_lines = envelope.get('po_lines')
+    if not isinstance(po_lines, list) or not po_lines:
+        return jsonify({"error": "po_lines must be a non-empty list in the 'data' envelope"}), 400
 
     filename = secure_filename(file.filename)
     save_path = os.path.join(PIPELINE_UPLOAD_FOLDER, f"{int(time.time())}_{filename}")
@@ -57,11 +72,12 @@ def extract_and_match():
 
 
     job = MatchJob(
-        po_number=str(po_number).strip(),
+        po_number=po_number,
         status='pending',
         triggered_by=triggered_by,
         job_type='extract_and_match',
         file_path=save_path,
+        input_json=envelope,
     )
     db.session.add(job)
     db.session.commit()
