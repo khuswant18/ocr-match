@@ -34,7 +34,6 @@ def _run_extraction_via_http(file_path, po_number):
 
     return result.get('invoice_id'), result.get('parsed_data')
 
-
 def _process_one_job(app):
     """
     Claim the oldest pending job, execute it, and store the result.
@@ -92,7 +91,6 @@ def _process_one_job(app):
         db.session.commit()
         return True
 
-
 def _worker_loop(app):
     logger.info("[WORKER] Match worker started.")
     while True:
@@ -103,7 +101,6 @@ def _worker_loop(app):
         except Exception as e:
             logger.error(f"[WORKER] Unexpected error in worker loop: {e}")
             time.sleep(POLL_INTERVAL * 5)
-
 
 def start_match_worker(app):
     """

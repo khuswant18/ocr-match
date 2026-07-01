@@ -1,5 +1,8 @@
+# pyrefly: ignore [missing-import]
 import numpy as np
+# pyrefly: ignore [missing-import]
 import cv2
+# pyrefly: ignore [missing-import]
 import imutils
 from app.utils.utils import convert_to_base64
 from app.utils.utils import load_image

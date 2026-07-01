@@ -2,7 +2,9 @@ import os
 import json
 import time
 import logging
+# pyrefly: ignore [missing-import]
 from flask import Blueprint, jsonify, request
+# pyrefly: ignore [missing-import]
 from werkzeug.utils import secure_filename
 from paddleocr import PaddleOCR
 from app.parsers.llm_parser import parse_with_gemini, verify_and_fix
@@ -32,7 +34,7 @@ ocr = PaddleOCR(
 print("[STARTUP] PaddleOCR models loaded successfully.", flush=True)
 
 def _merge_ocr_passes(results_list: list) -> list:
-    print("_merge_ocr_passes","results_list",results_list) 
+    print(f"\n>>>>>>>> MERGING OCR PASSES ({len(results_list)} passes) >>>>>>>>")
     """
     Merge OCR results from multiple preprocessing passes.
     For overlapping detections (IoU > 0.4), keep the higher-confidence one.
@@ -80,6 +82,7 @@ def _merge_ocr_passes(results_list: list) -> list:
             if _box_iou(det_i[0], all_detections[j][0]) > 0.4:
                 used[j] = True
 
+    print(f"<<<<<<<< MERGED INTO {len(kept) if kept else 0} DETECTIONS <<<<<<<<\n")
     return [kept] if kept else []
 
 
@@ -91,7 +94,6 @@ def process_paddleocr():
             return jsonify({'error': 'No valid image or PDF found in request.'}), 400
 
         ocr_method = 'PaddleOCR'
-
 
         start_time_recognition = time.time()
 
@@ -108,7 +110,7 @@ def process_paddleocr():
                 all_results.extend(merged)
 
         recognition_time = time.time() - start_time_recognition
-        print("recognition_time",recognition_time) 
+        print(f"\n>>>>>>>> OCR RECOGNITION COMPLETED IN {recognition_time:.2f} SECONDS >>>>>>>>\n")
         if not all_results:
             return jsonify({'error': 'OCR failed to extract any text from the document.'}), 400
 
@@ -169,9 +171,6 @@ def process_paddleocr():
         print(json.dumps(parsed_data, indent=4))
         print("=" * 60 + "\n")
 
-
-
-
         response = {
             'text': text,
             'parsed_data': parsed_data,
@@ -182,17 +181,29 @@ def process_paddleocr():
             'average_confidence': average_confidence * 100
         }
 
-
         if isinstance(parsed_data, dict) and check_if_invoice(parsed_data):
 
-            inv_num = parsed_data.get("invoice_number", "").strip()
-            if inv_num:
-                existing = Invoice.query.filter_by(invoice_number=inv_num).first()
-                if existing:
-                    logger.warning(f"[DUPLICATE] Invoice {inv_num} already exists (id={existing.id})")
-                    response['warning'] = f'Invoice {inv_num} was already processed (ID: {existing.id}). Showing results but not saving duplicate.'
-                    response['existing_invoice_id'] = existing.id
-                    return jsonify(response), 200
+            inv_num = parsed_data.get("invoice_number", "")
+            inv_num = inv_num.strip() if isinstance(inv_num, str) else str(inv_num).strip()
+            
+            po_num = parsed_data.get("po_number", "")
+            po_num = po_num.strip() if isinstance(po_num, str) else str(po_num).strip()
+            
+            supp_name = parsed_data.get("supplier_name", "")
+            supp_name = supp_name.strip() if isinstance(supp_name, str) else str(supp_name).strip()
+
+            existings = []
+            if po_num:
+                existings = Invoice.query.filter_by(po_number=po_num).all()
+            elif inv_num:
+                existings = Invoice.query.filter_by(invoice_number=inv_num).all()
+
+            if existings:
+                for existing in existings:
+                    match_type = f"PO {po_num}" if po_num else f"invoice {inv_num}"
+                    logger.warning(f"[DUPLICATE REPLACED] Match found for {match_type}. Deleting old invoice (id={existing.id}).")
+                    db.session.delete(existing)
+                db.session.commit()
 
             pdf_file = request.files.get('pdf')
             image_file = request.files.get('image')

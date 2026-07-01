@@ -1,9 +1,14 @@
 import io
 import base64
+# pyrefly: ignore [missing-import]
 import cv2
+# pyrefly: ignore [missing-import]
 import numpy as np
+# pyrefly: ignore [missing-import]
 import fitz
+# pyrefly: ignore [missing-import]
 from flask import request
+# pyrefly: ignore [missing-import]
 from PIL import Image
 
 def convert_to_base64(img):
@@ -58,7 +63,8 @@ def _deskew(gray: np.ndarray) -> np.ndarray:
 
 
 def preprocess_for_ocr(img: np.ndarray) -> list[np.ndarray]:
-    print("preprocess_for_ocr",img) 
+    print("\n>>>>>>>> STARTING IMAGE PREPROCESSING >>>>>>>>")
+    print(f"Input image shape: {img.shape}")
     """
     Return TWO versions of the image for dual-pass OCR:
       1. Light enhancement (good for clean/digital PDFs)
@@ -86,9 +92,11 @@ def preprocess_for_ocr(img: np.ndarray) -> list[np.ndarray]:
     sharpened = cv2.filter2D(enhanced, -1, kernel)
     denoised = cv2.fastNlMeansDenoising(sharpened, h=12, templateWindowSize=7, searchWindowSize=21)
     pass2_rgb = cv2.cvtColor(denoised, cv2.COLOR_GRAY2RGB)
-    print("pass1_rgb",pass1_rgb,"pass2_rgb",pass2_rgb)
-    return [pass1_rgb, pass2_rgb]
-
+    
+    print(f"Generated Pass 1 shape: {pass1_rgb.shape} | Pass 2 shape: {pass2_rgb.shape}")
+    print("<<<<<<<< FINISHED IMAGE PREPROCESSING <<<<<<<<\n")
+    
+    return [np.ascontiguousarray(pass1_rgb), np.ascontiguousarray(pass2_rgb)]
 
 def load_images_from_request():
     """
@@ -111,7 +119,8 @@ def load_images_from_request():
         all_variants = []
         for img in raw_images:
             all_variants.append(preprocess_for_ocr(img))
-        print("all_variants",all_variants)
+            
+        print(f"\n>>>>>>>> LOADED {len(all_variants)} PAGE(S) FROM PDF >>>>>>>>\n")
         return all_variants
 
     npimg = np.frombuffer(file_bytes, np.uint8)

@@ -12,15 +12,12 @@ bcrypt = Bcrypt()
 
 
 def _setup_logging(app):
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter(
-        "[%(asctime)s] %(levelname)s %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    ))
-    app.logger.addHandler(handler)
-    app.logger.setLevel(logging.INFO)
-    logging.getLogger("app").setLevel(logging.INFO)
-    logging.getLogger("app").addHandler(handler)
+    # Suppress all standard logs as requested, leaving only print() output
+    logging.getLogger().setLevel(logging.CRITICAL)
+    app.logger.setLevel(logging.CRITICAL)
+    logging.getLogger("app").setLevel(logging.CRITICAL)
+    logging.getLogger("werkzeug").setLevel(logging.CRITICAL)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.CRITICAL)
 
 
 def create_app():

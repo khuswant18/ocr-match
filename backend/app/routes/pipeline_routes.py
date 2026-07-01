@@ -10,34 +10,8 @@ logger = logging.getLogger(__name__)
 
 pipeline_bp = Blueprint('pipeline', __name__)
 
-PIPELINE_UPLOAD_FOLDER = 'uploads/pipeline/'
+PIPELINE_UPLOAD_FOLDER = 'uploads/'
 os.makedirs(PIPELINE_UPLOAD_FOLDER, exist_ok=True)
-
-@pipeline_bp.route('/api/pipeline/match', methods=['POST'])
-def enqueue_match():
-    data = request.get_json(silent=True) or {}
-    po_number = data.get('po_number')
-
-    if not po_number:
-        return jsonify({"error": "po_number is required"}), 400
-
-    triggered_by = data.get('triggered_by', 'api')
-
-    job = MatchJob(
-        po_number=str(po_number).strip(),
-        status='pending',
-        triggered_by=triggered_by,
-    )
-    db.session.add(job)
-    db.session.commit()
-
-    logger.info(f"[PIPELINE] Enqueued match job #{job.id} for PO {po_number} (by {triggered_by})")
-
-    return jsonify({
-        "job_id": job.id,
-        "po_number": job.po_number,
-        "status": job.status,
-    }), 202
 
 @pipeline_bp.route('/api/pipeline/extract-and-match', methods=['POST'])
 def extract_and_match():

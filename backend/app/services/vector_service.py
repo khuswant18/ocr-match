@@ -13,7 +13,7 @@ Architecture:
 
 import os
 import re
-
+# pyrefly: ignore [missing-import]
 from qdrant_client import QdrantClient
 
 COLLECTION = "po_descriptions"
@@ -208,9 +208,11 @@ def index_po_items(po_items: dict) -> None:
             metadata=metadatas,
             ids=ids,
         )
-        print(f"[vector_service] Indexed {len(documents)} PO descriptions into Qdrant.")
+        print(f"\n>>>>>>>> VECTOR SERVICE: INDEXING >>>>>>>>")
+        print(f"Indexed {len(documents)} PO descriptions into Qdrant.")
         for doc, meta in zip(documents, metadatas):
             print(f"  [{meta['product_code']}] normalized: '{doc}'")
+        print("<<<<<<<< INDEXING COMPLETE <<<<<<<<\n")
 
 
 def find_best_match(inv_desc: str, threshold: float = COMBINED_THRESHOLD) -> str | None:
@@ -253,15 +255,17 @@ def find_ranked_candidates(
 
     scored: list[tuple[str, float]] = []
 
+    print(f"\n>>>>>>>> VECTOR SERVICE: SEARCHING >>>>>>>>")
+    print(f"Query: '{inv_desc}' (normalized: '{inv_norm}')")
+    
     for hit in results:
         vec_score = hit.score
         po_norm = _normalize(hit.metadata.get("raw_desc", ""))
         score = _combined_score(vec_score, inv_norm, po_norm)
 
         print(
-            f"[vector_service] '{inv_desc}' → norm='{inv_norm}' vs "
-            f"'{hit.metadata.get('raw_desc', '')}' → norm='{po_norm}' "
-            f"| vec={vec_score:.3f} token={_token_overlap(inv_norm, po_norm):.3f} combined={score:.3f}"
+            f"  vs '{hit.metadata.get('raw_desc', '')}' (norm: '{po_norm}')\n"
+            f"     | Vector Score: {vec_score:.3f} | Token Overlap: {_token_overlap(inv_norm, po_norm):.3f} | Combined: {score:.3f}"
         )
 
         code = hit.metadata.get("product_code")
@@ -271,8 +275,11 @@ def find_ranked_candidates(
     scored.sort(key=lambda x: x[1], reverse=True)
 
     if scored:
-        print(f"[vector_service] CANDIDATES for '{inv_desc}': {[(c, round(s,3)) for c,s in scored]}")
+        candidates_str = ", ".join([f"'{c}' ({round(s,3)})" for c, s in scored])
+        print(f"\nResult: Found {len(scored)} candidate(s): {candidates_str}")
     else:
-        print(f"[vector_service] NO MATCH for '{inv_desc}' (all below threshold={threshold})")
+        print(f"\nResult: NO MATCH (all below threshold={threshold})")
+        
+    print("<<<<<<<< SEARCH COMPLETE <<<<<<<<\n")
 
     return scored
