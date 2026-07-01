@@ -151,6 +151,11 @@ def _format_match_result(result):
         total_price_variance += float(m.get("price_variance") or 0)
         total_qty_variance += float(m.get("qty_variance") or 0)
 
+        # matched flags only mean anything when both sides exist (matched/mismatch)
+        comparable = st in ("matched", "mismatch")
+        qty_matched   = bool(m.get("is_qty_match"))   if comparable else False
+        price_matched = bool(m.get("is_price_match")) if comparable else False
+
         item = {
             "product_code": m.get("product_code"),
             "description":  desc_lookup.get(m.get("product_code"), ""),
@@ -165,13 +170,13 @@ def _format_match_result(result):
                 "conversion_factor":  m.get("conversion_factor"),
                 "invoice_normalized": m.get("invoice_qty"),
                 "variance":           m.get("qty_variance"),
-                "matched":            m.get("is_qty_match"),
+                "matched":            qty_matched,
             },
             "price": {
                 "po":       m.get("po_price"),
                 "invoice":  m.get("invoice_price"),
                 "variance": m.get("price_variance"),
-                "matched":  m.get("is_price_match"),
+                "matched":  price_matched,
             },
         }
 
