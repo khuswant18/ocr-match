@@ -351,7 +351,7 @@ def _build_ui_results(po_items, grn_items, inv_items, po_number):
         is_qty_match   = qty_variance <= 0
 
         price_variance = round(inv_price - po_price, 4)
-        is_price_match = price_variance <= 0.05
+        is_price_match = abs(price_variance) <= 0.05
 
         if not po:
             if code.startswith("unknown_"):
@@ -378,7 +378,10 @@ def _build_ui_results(po_items, grn_items, inv_items, po_number):
                 else:
                     issues.append(f"Overbilled by {qty_variance} units")
             if not is_price_match:
-                issues.append(f"Overpriced by {price_variance} per unit")
+                if price_variance > 0:
+                    issues.append(f"Overpriced by {price_variance} per unit")
+                else:
+                    issues.append(f"Underpriced by {abs(price_variance)} per unit")
             issue_summary = " | ".join(issues)
 
         # UI result — one row per product_code with per-invoice breakdown
