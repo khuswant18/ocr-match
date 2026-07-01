@@ -26,6 +26,9 @@ def create_app():
     app.config.update(ENV='development')
     app.config['SESSION_SQLALCHEMY'] = db
     app.config['CORS_HEADERS'] = 'Content-Type'
+    # Preserve the order in which we build response dicts instead of
+    # alphabetising JSON keys, so related fields stay grouped/readable.
+    app.json.sort_keys = False
 
     _setup_logging(app)
 
