@@ -2,6 +2,7 @@ import os
 import json
 import time
 import logging
+import threading
 # pyrefly: ignore [missing-import]
 from flask import Blueprint, jsonify, request
 # pyrefly: ignore [missing-import]
@@ -22,16 +23,56 @@ paddleocr_bp = Blueprint('paddleocr', __name__)
 UPLOAD_FOLDER = 'uploads/invoices/'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+def _build_ocr():
+    return PaddleOCR(
+        use_angle_cls=True,
+        lang='en',
+        show_log=False,
+        det_db_thresh=0.3,
+        det_db_box_thresh=0.5,
+        det_db_unclip_ratio=1.8,
+    )
+
+
 print("[STARTUP] Loading PaddleOCR models into memory...", flush=True)
-ocr = PaddleOCR(
-    use_angle_cls=True,
-    lang='en',
-    show_log=False,
-    det_db_thresh=0.3,
-    det_db_box_thresh=0.5,
-    det_db_unclip_ratio=1.8,
-)
+ocr = _build_ocr()
 print("[STARTUP] PaddleOCR models loaded successfully.", flush=True)
+
+# The PaddleOCR predictor reuses fixed tensor buffers and is NOT thread-safe.
+# Flask's dev server is multi-threaded and a background worker also calls this
+# endpoint, so concurrent requests would corrupt the shared predictor
+# ("Tensor holds no memory"). Serialise all predictor access with this lock.
+_ocr_lock = threading.Lock()
+
+
+def _run_document_ocr(page_variants_list):
+    """
+    Run OCR over every page variant while holding the predictor lock.
+    A single "Tensor holds no memory" failure leaves the shared predictor
+    corrupted, so on a RuntimeError we rebuild it once and retry the whole
+    document — otherwise every later request would fail until a manual restart.
+    """
+    global ocr
+    for attempt in (1, 2):
+        try:
+            all_results = []
+            for page_variants in page_variants_list:
+                pass_results = []
+                for variant_img in page_variants:
+                    page_result = ocr.ocr(variant_img, cls=True)
+                    if page_result and page_result[0]:
+                        pass_results.append(page_result)
+
+                merged = _merge_ocr_passes(pass_results) if pass_results else []
+                if merged:
+                    all_results.extend(merged)
+            return all_results
+        except RuntimeError as e:
+            if attempt == 1:
+                logger.error(f"[OCR] predictor error, rebuilding and retrying once: {e}")
+                ocr = _build_ocr()
+                continue
+            raise
 
 def _merge_ocr_passes(results_list: list) -> list:
     print(f"\n>>>>>>>> MERGING OCR PASSES ({len(results_list)} passes) >>>>>>>>")
@@ -97,17 +138,11 @@ def process_paddleocr():
 
         start_time_recognition = time.time()
 
-        all_results = []
-        for page_variants in page_variants_list:
-            pass_results = []
-            for variant_img in page_variants:
-                page_result = ocr.ocr(variant_img, cls=True)
-                if page_result and page_result[0]:
-                    pass_results.append(page_result)
-                                                        
-            merged = _merge_ocr_passes(pass_results) if pass_results else []
-            if merged:
-                all_results.extend(merged)
+        # Hold the lock for the whole document so one request owns the predictor
+        # start-to-finish (no interleaving with a concurrent OCR request), and
+        # self-heal the predictor if a previous call left it corrupted.
+        with _ocr_lock:
+            all_results = _run_document_ocr(page_variants_list)
 
         recognition_time = time.time() - start_time_recognition
         print(f"\n>>>>>>>> OCR RECOGNITION COMPLETED IN {recognition_time:.2f} SECONDS >>>>>>>>\n")
