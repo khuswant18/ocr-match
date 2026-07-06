@@ -19,8 +19,6 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-
-
 def _groq_api_key() -> str:
     return os.environ.get("GROQ_API_KEY", "")
 
@@ -42,9 +40,6 @@ OPENROUTER_BASE_URL = os.environ.get(
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2
 
-
-
-
 def _extract_json_payload(text: str) -> str:
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     match = re.search(r'```(?:json)?\s*\n(.*?)\n\s*```', text, re.DOTALL)
@@ -54,9 +49,6 @@ def _extract_json_payload(text: str) -> str:
     if match:
         return match.group(1).strip()
     return text.strip()
-
-
-
 
 SYSTEM_PROMPT = """You are an expert invoice data-extraction engine.
 You receive noisy OCR text from scanned invoices. The text uses tabs
@@ -153,8 +145,6 @@ USER_PROMPT_TEMPLATE = """Extract ALL structured data from the OCR text below.
     "total_amount": 0.0
   }}
 }}"""
-
-
 
 def verify_and_fix(parsed: dict, ocr_text: str = "") -> dict:
     """

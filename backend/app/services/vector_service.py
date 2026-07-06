@@ -81,7 +81,6 @@ _NOISE_WORDS: set[str] = {
     "x", "de", "d",
 }
 
-
 def _get_client() -> QdrantClient:
     global _client
     if _client is None:
@@ -89,7 +88,6 @@ def _get_client() -> QdrantClient:
         port = int(os.environ.get("QDRANT_PORT", 6333))
         _client = QdrantClient(host=host, port=port)
     return _client
-
 
 def _normalize(text: str) -> str:
     """
@@ -180,14 +178,12 @@ def _combined_score(vector_score: float, a_norm: str, b_norm: str) -> float:
     token_score = _token_overlap(a_norm, b_norm)
     return VECTOR_WEIGHT * vector_score + TOKEN_WEIGHT * token_score
 
-
-
-def index_po_items(po_items: dict) -> None:
+def index_po_items(po_items: dict, collection_name: str = COLLECTION) -> None:
 
     client = _get_client()
 
-    if client.collection_exists(COLLECTION):
-        client.delete_collection(COLLECTION)
+    if client.collection_exists(collection_name):
+        client.delete_collection(collection_name)
 
     documents: list[str] = []
     metadatas: list[dict] = []
@@ -200,31 +196,37 @@ def index_po_items(po_items: dict) -> None:
         documents.append(_normalize(raw_desc))
         metadatas.append({"product_code": code, "raw_desc": raw_desc})
         ids.append(idx)
+        
+    if not documents:
+        raise ValueError("No valid PO descriptions found to index.")
 
-    if documents:
-        client.add(
-            collection_name=COLLECTION,
-            documents=documents,
-            metadata=metadatas,
-            ids=ids,
-        )
-        print(f"\n>>>>>>>> VECTOR SERVICE: INDEXING >>>>>>>>")
-        print(f"Indexed {len(documents)} PO descriptions into Qdrant.")
-        for doc, meta in zip(documents, metadatas):
-            print(f"  [{meta['product_code']}] normalized: '{doc}'")
-        print("<<<<<<<< INDEXING COMPLETE <<<<<<<<\n")
+    client.add(
+        collection_name=collection_name,
+        documents=documents,
+        metadata=metadatas,
+        ids=ids,
+    )
+    print(f"\n>>>>>>>> VECTOR SERVICE: INDEXING >>>>>>>>")
+    print(f"Indexed {len(documents)} PO descriptions into Qdrant collection '{collection_name}'.")
+    for doc, meta in zip(documents, metadatas):
+        print(f"  [{meta['product_code']}] normalized: '{doc}'")
+    print("<<<<<<<< INDEXING COMPLETE <<<<<<<<\n")
 
+def delete_collection(collection_name: str) -> None:
+    client = _get_client()
+    if client.collection_exists(collection_name):
+        client.delete_collection(collection_name)
 
 def find_best_match(inv_desc: str, threshold: float = COMBINED_THRESHOLD) -> str | None:
     """Convenience wrapper — returns the single best match or None."""
     candidates = find_ranked_candidates(inv_desc, threshold=threshold)
     return candidates[0][0] if candidates else None
 
-
 def find_ranked_candidates(
     inv_desc: str,
     threshold: float = COMBINED_THRESHOLD,
     top_k: int = 10,
+    collection_name: str = COLLECTION,
 ) -> list[tuple[str, float]]:
     """
     Return a ranked list of (product_code, combined_score) whose score >= threshold.
@@ -245,7 +247,7 @@ def find_ranked_candidates(
     client = _get_client()
 
     results = client.query(
-        collection_name=COLLECTION,
+        collection_name=collection_name,
         query_text=inv_norm,
         limit=top_k,
     )

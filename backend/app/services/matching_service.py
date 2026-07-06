@@ -1,11 +1,13 @@
 import sys
 import os
+import json
+import time
 import difflib
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from mysql_db import get_connection
-from app.services.vector_service import index_po_items, find_ranked_candidates, RELAXED_THRESHOLD
-
+from app.services.vector_service import index_po_items, find_ranked_candidates, delete_collection, RELAXED_THRESHOLD
+import uuid
 
 def _fetch_po_items(cursor, po_number):
     cursor.execute(
@@ -174,11 +176,18 @@ def _po_items_from_lines(po_lines):
         code = str(r.get("product_code", "")).strip()
         if not code:
             continue
+        # External APIs may use 'description' or 'product_desc' instead of 'product_full_desc'
+        desc = (
+            r.get("product_full_desc")
+            or r.get("description")
+            or r.get("product_desc")
+            or ""
+        )
         items[code] = {
             "qty":               float(r.get("po_total_qty") or 0),
             "price":             float(r.get("purchase_price") or 0),
             "conversion_factor": float(r.get("buying_conversion_factor") or 1.0),
-            "desc":              str(r.get("product_full_desc") or ""),
+            "desc":              str(desc),
         }
     return items
 
@@ -245,7 +254,7 @@ def _inv_items_from_ocr(parsed_data, invoice_id=None):
 # JSON-payload path.
 # ---------------------------------------------------------------------------
 
-def _auto_match(po_items, inv_items, vector_enabled):
+def _auto_match(po_items, inv_items, vector_enabled, collection_name=None):
     """
     Resolve invoice lines whose product_code didn't map to a PO line
     ("unknown_*") onto a PO code, in place. Uses vector search, fuzzy
@@ -270,6 +279,7 @@ def _auto_match(po_items, inv_items, vector_enabled):
                     inv_desc,
                     threshold=RELAXED_THRESHOLD,
                     top_k=10,
+                    collection_name=collection_name,
                 )
                 for code, score in candidates:
                     if code not in already_matched_po_codes:
@@ -485,13 +495,14 @@ def run_three_way_match(po_number):
         # Build Qdrant vectors for current PO items once per matching run.
         # If Qdrant is unavailable, continue with legacy heuristics.
         vector_enabled = True
+        vector_collection = f"po_{po_number}_{uuid.uuid4().hex}"
         try:
-            index_po_items(po_items)
+            index_po_items(po_items, collection_name=vector_collection)
         except Exception as e:
             vector_enabled = False
             print(f"[matching_service] Vector index skipped: {e}")
 
-        _auto_match(po_items, inv_items, vector_enabled)
+        _auto_match(po_items, inv_items, vector_enabled, collection_name=vector_collection)
         ui_results = _build_ui_results(po_items, grn_items, inv_items, po_number)
         _persist_matching_results(cursor, po_number, ui_results)
 
@@ -499,6 +510,13 @@ def run_three_way_match(po_number):
         raw_po_list = [{"product_code": code, **data} for code, data in po_items.items()]
         raw_inv_list = [{"product_code": code, **data} for code, data in inv_items.items()]
         raw_grn_list = [{"product_code": code, **data} for code, data in grn_items.items()]
+        
+        try:
+            if vector_enabled:
+                delete_collection(vector_collection)
+        except Exception as e:
+            print(f"[matching_service] Cleanup error: {e}")
+
         return {"status": "success", "raw_po_items": raw_po_list, "raw_inv_items": raw_inv_list, "raw_grn_items": raw_grn_list, "matches": ui_results}
 
     except Exception as e:
@@ -515,9 +533,41 @@ def run_match_from_payload(po_number, po_lines, pol_grn, parsed_data, invoice_id
     3-Way Match with PO/GRN supplied as JSON (raw SQL-column rows) and the invoice
     sourced from the OCR result. Fully in memory — no DB reads or writes.
     """
+    # Save raw incoming PO and GRN payloads to JSON files for debugging
+    os.makedirs('uploads', exist_ok=True)
+    ts = int(time.time())
+    po_dump_path = f"uploads/{ts}_PO_{po_number}_po_lines.json"
+    grn_dump_path = f"uploads/{ts}_PO_{po_number}_pol_grn.json"
+    try:
+        with open(po_dump_path, 'w') as f:
+            json.dump(po_lines, f, indent=2, default=str)
+        with open(grn_dump_path, 'w') as f:
+            json.dump(pol_grn, f, indent=2, default=str)
+        print(f"[DEBUG] Saved PO payload -> {po_dump_path}")
+        print(f"[DEBUG] Saved GRN payload -> {grn_dump_path}")
+    except Exception as e:
+        print(f"[DEBUG] Failed to save PO/GRN payloads: {e}")
+
     po_items  = _po_items_from_lines(po_lines)
     grn_items = _grn_items_from_lines(pol_grn)
     inv_items = _inv_items_from_ocr(parsed_data, invoice_id)
+
+    print(f"\n{'='*60}")
+    print(f"[DEBUG] run_match_from_payload for PO: {po_number}")
+    print(f"{'='*60}")
+    print(f"\n--- RAW po_lines ({len(po_lines or [])}) ---")
+    for i, r in enumerate(po_lines or []):
+        print(f"  [{i}] code={r.get('product_code')} desc={r.get('product_full_desc')!r} | description={r.get('description')!r} | product_desc={r.get('product_desc')!r}")
+    print(f"\n--- PARSED po_items ({len(po_items)}) ---")
+    for code, data in po_items.items():
+        print(f"  [{code}] desc={data.get('desc')!r} qty={data.get('qty')} price={data.get('price')}")
+    print(f"\n--- PARSED grn_items ({len(grn_items)}) ---")
+    for code, data in grn_items.items():
+        print(f"  [{code}] qty={data.get('qty')} grn_number={data.get('grn_number')}")
+    print(f"\n--- PARSED inv_items ({len(inv_items)}) ---")
+    for code, data in inv_items.items():
+        print(f"  [{code}] desc={data.get('desc')!r} qty={data.get('qty')} price={data.get('price')}")
+    print(f"{'='*60}\n")
 
     if not po_items:
         return {"error": "No PO lines provided."}
@@ -527,14 +577,21 @@ def run_match_from_payload(po_number, po_lines, pol_grn, parsed_data, invoice_id
     # Build Qdrant vectors for current PO items once per matching run.
     # If Qdrant is unavailable, continue with legacy heuristics.
     vector_enabled = True
+    vector_collection = f"po_{po_number}_{uuid.uuid4().hex}"
     try:
-        index_po_items(po_items)
+        index_po_items(po_items, collection_name=vector_collection)
     except Exception as e:
         vector_enabled = False
         print(f"[matching_service] Vector index skipped: {e}")
 
-    _auto_match(po_items, inv_items, vector_enabled)
+    _auto_match(po_items, inv_items, vector_enabled, collection_name=vector_collection)
     ui_results = _build_ui_results(po_items, grn_items, inv_items, po_number)
+    
+    try:
+        if vector_enabled:
+            delete_collection(vector_collection)
+    except Exception as e:
+        print(f"[matching_service] Cleanup error: {e}")
 
     return {
         "status": "success",
