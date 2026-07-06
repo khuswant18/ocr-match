@@ -12,6 +12,7 @@ from app.parsers.llm_parser import parse_with_gemini, verify_and_fix
 from app.utils.operations import add_invoice_to_db, check_if_invoice, process_paddleocr_text
 from app.utils.utils import load_images_from_request
 from app.models import db, Invoice
+from app.cancel_registry import check_cancelled, JobCancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +46,9 @@ print("[STARTUP] PaddleOCR models loaded successfully.", flush=True)
 _ocr_lock = threading.Lock()
 
 
-def _run_document_ocr(page_variants_list):
+def _run_document_ocr(images, job_id=None):
     """
-    Run OCR over every page variant while holding the predictor lock.
+    Run OCR over every page image while holding the predictor lock.
     A single "Tensor holds no memory" failure leaves the shared predictor
     corrupted, so on a RuntimeError we rebuild it once and retry the whole
     document — otherwise every later request would fail until a manual restart.
@@ -56,17 +57,14 @@ def _run_document_ocr(page_variants_list):
     for attempt in (1, 2):
         try:
             all_results = []
-            for page_variants in page_variants_list:
-                pass_results = []
-                for variant_img in page_variants:
-                    page_result = ocr.ocr(variant_img, cls=True)
-                    if page_result and page_result[0]:
-                        pass_results.append(page_result)
-
-                merged = _merge_ocr_passes(pass_results) if pass_results else []
-                if merged:
-                    all_results.extend(merged)
+            for page_img in images:
+                check_cancelled(job_id)
+                page_result = ocr.ocr(page_img, cls=True)
+                if page_result and page_result[0]:
+                    all_results.extend(page_result)
             return all_results
+        except JobCancelledError:
+            raise
         except RuntimeError as e:
             if attempt == 1:
                 logger.error(f"[OCR] predictor error, rebuilding and retrying once: {e}")
@@ -74,67 +72,20 @@ def _run_document_ocr(page_variants_list):
                 continue
             raise
 
-def _merge_ocr_passes(results_list: list) -> list:
-    print(f"\n>>>>>>>> MERGING OCR PASSES ({len(results_list)} passes) >>>>>>>>")
-    """
-    Merge OCR results from multiple preprocessing passes.
-    For overlapping detections (IoU > 0.4), keep the higher-confidence one.
-    Non-overlapping detections from either pass are kept — this catches
-    items that one pass misses entirely.
-    """
-    if len(results_list) == 1:
-        return results_list[0]
-
-    all_detections = []
-    for pass_results in results_list:
-        if not pass_results:
-            continue
-        for res in pass_results:
-            if not res:
-                continue
-            for line in res:
-                all_detections.append(line)
-
-    if not all_detections:
-        return []
-
-    def _box_iou(a, b):
-        ax1, ay1, ax2, ay2 = a[0][0], a[0][1], a[2][0], a[2][1]
-        bx1, by1, bx2, by2 = b[0][0], b[0][1], b[2][0], b[2][1]
-        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
-        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
-        inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
-        area_a = max(1, (ax2 - ax1) * (ay2 - ay1))
-        area_b = max(1, (bx2 - bx1) * (by2 - by1))
-        return inter / (area_a + area_b - inter)
-
-    all_detections.sort(key=lambda d: d[1][1], reverse=True)
-
-    kept = []
-    used = [False] * len(all_detections)
-    for i, det_i in enumerate(all_detections):
-        if used[i]:
-            continue
-        kept.append(det_i)
-        used[i] = True
-        for j in range(i + 1, len(all_detections)):
-            if used[j]:
-                continue
-            if _box_iou(det_i[0], all_detections[j][0]) > 0.4:
-                used[j] = True
-
-    print(f"<<<<<<<< MERGED INTO {len(kept) if kept else 0} DETECTIONS <<<<<<<<\n")
-    return [kept] if kept else []
-
 
 @paddleocr_bp.route('/paddleOCR', methods=['POST'])
 def process_paddleocr():
     try:
-        page_variants_list = load_images_from_request()
-        if not page_variants_list:
+        # job_id passed by the match worker so we can check cancellation
+        job_id = request.form.get('job_id', type=int)
+
+        images = load_images_from_request()
+        if not images:
             return jsonify({'error': 'No valid image or PDF found in request.'}), 400
 
         ocr_method = 'PaddleOCR'
+
+        check_cancelled(job_id)
 
         start_time_recognition = time.time()
 
@@ -142,17 +93,14 @@ def process_paddleocr():
         # start-to-finish (no interleaving with a concurrent OCR request), and
         # self-heal the predictor if a previous call left it corrupted.
         with _ocr_lock:
-            all_results = _run_document_ocr(page_variants_list)
+            all_results = _run_document_ocr(images, job_id=job_id)
 
         recognition_time = time.time() - start_time_recognition
-        print(f"\n>>>>>>>> OCR RECOGNITION COMPLETED IN {recognition_time:.2f} SECONDS >>>>>>>>\n")
         if not all_results:
             return jsonify({'error': 'OCR failed to extract any text from the document.'}), 400
 
         average_confidence, text = process_paddleocr_text(all_results)
         word_count = len(text.split())
-
-        logger.info(f"[OCR] confidence={average_confidence*100:.1f}% words={word_count} time={recognition_time:.1f}s")
 
         if average_confidence * 100 < MIN_OCR_CONFIDENCE:
             return jsonify({
@@ -169,16 +117,16 @@ def process_paddleocr():
             }), 400
 
         print("\n" + "=" * 60)
-        print("[OCR] EXTRACTED TEXT (dual-pass, tab-separated columns):")
+        print("[OCR] EXTRACTED TEXT:")
         print("=" * 60)
         print(text)
         print("=" * 60 + "\n")
 
+        check_cancelled(job_id)
 
         start_time_parsing = time.time()
-        print("[LLM] Sending OCR text to Groq for structured extraction...")
 
-        parsed_data = parse_with_gemini(text)
+        parsed_data = parse_with_gemini(text, job_id=job_id)
         parsing_time = time.time() - start_time_parsing
 
         if isinstance(parsed_data, str):
@@ -192,6 +140,7 @@ def process_paddleocr():
                     'raw_output': parsed_data
                 }), 500
 
+        check_cancelled(job_id)
 
         if isinstance(parsed_data, dict):
             po_number_override = request.form.get("po_number")
@@ -273,6 +222,10 @@ def process_paddleocr():
             response['warning'] = 'Document was not recognized as a valid invoice. Not saved to database.'
 
         return jsonify(response), 200
+
+    except JobCancelledError as e:
+        print(f"[OCR] Job cancelled: {e}")
+        return jsonify({'error': 'Job cancelled by user.'}), 499
 
     except Exception as e:
         logging.exception("Fatal error in OCR pipeline:")

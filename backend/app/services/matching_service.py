@@ -32,7 +32,6 @@ def _fetch_po_items(cursor, po_number):
         }
     return items
 
-
 def _fetch_grn_items(cursor, po_number):
     # pol_grn.po_trans_no is numeric — try int first, fall back to string match
     po_str = str(po_number).strip()
@@ -74,7 +73,6 @@ def _fetch_grn_items(cursor, po_number):
             "grn_number": str(r[2] or "")
         }
     return items
-
 
 def _fetch_invoice_items(cursor, po_number, po_items):
     """
@@ -165,11 +163,6 @@ def _fetch_invoice_items(cursor, po_number, po_items):
     return items
 
 
-# ---------------------------------------------------------------------------
-# JSON-payload converters (no DB) — mirror the dict shapes the _fetch_* helpers
-# produce, but built from raw-column JSON rows / the OCR result.
-# ---------------------------------------------------------------------------
-
 def _po_items_from_lines(po_lines):
     items = {}
     for r in po_lines or []:
@@ -191,7 +184,6 @@ def _po_items_from_lines(po_lines):
         }
     return items
 
-
 def _grn_items_from_lines(pol_grn):
     """Replicates the old SQL: GROUP BY product_code, SUM(vo_tot_qty), MAX(vo_trans_no)."""
     items = {}
@@ -207,7 +199,6 @@ def _grn_items_from_lines(pol_grn):
         else:
             items[code] = {"qty": qty, "grn_number": grn}
     return items
-
 
 def _inv_items_from_ocr(parsed_data, invoice_id=None):
     """
@@ -247,12 +238,6 @@ def _inv_items_from_ocr(parsed_data, invoice_id=None):
                 "invoice_lines":   [line],
             }
     return items
-
-
-# ---------------------------------------------------------------------------
-# Pure, DB-free matching core — shared by the legacy SQL path and the new
-# JSON-payload path.
-# ---------------------------------------------------------------------------
 
 def _auto_match(po_items, inv_items, vector_enabled, collection_name=None):
     """
@@ -473,7 +458,6 @@ def _persist_matching_results(cursor, po_number, ui_results):
                 row["status"], row["issue_summary"],
             ))
 
-
 def run_three_way_match(po_number):
     """
     Executes the 3-Way Match against the DB (legacy path used by /api/pipeline/match),
@@ -526,7 +510,6 @@ def run_three_way_match(po_number):
     finally:
         cursor.close()
         conn.close()
-
 
 def run_match_from_payload(po_number, po_lines, pol_grn, parsed_data, invoice_id=None):
     """
@@ -600,7 +583,6 @@ def run_match_from_payload(po_number, po_lines, pol_grn, parsed_data, invoice_id
         "raw_grn_items": [{"product_code": c, **d} for c, d in grn_items.items()],
         "matches": ui_results,
     }
-
 
 def get_po_list():
     """Return list of available PO numbers from po_headers UNION invoices."""

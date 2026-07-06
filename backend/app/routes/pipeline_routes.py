@@ -279,3 +279,74 @@ def list_jobs():
         }
         for j in jobs
     ]), 200
+
+
+@pipeline_bp.route('/api/pipeline/job/<int:job_id>/cancel', methods=['POST'])
+def cancel_job(job_id):
+    """Cancel a specific running job by ID."""
+    from app.cancel_registry import cancel_job as do_cancel, active_job_ids
+
+    job = MatchJob.query.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    if job.status not in ('pending', 'running'):
+        return jsonify({
+            "message": f"Job #{job_id} is already {job.status}, nothing to cancel.",
+            "job_id": job_id,
+            "status": job.status,
+        }), 200
+
+    # If pending (not yet picked up by worker), mark cancelled directly
+    if job.status == 'pending':
+        job.status = 'cancelled'
+        job.error_message = 'Cancelled by user before processing started.'
+        from datetime import datetime, timezone
+        job.completed_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return jsonify({
+            "message": f"Job #{job_id} cancelled (was pending).",
+            "job_id": job_id,
+            "status": "cancelled",
+        }), 200
+
+    # Running — signal the cancel event
+    found = do_cancel(job_id)
+    if found:
+        return jsonify({
+            "message": f"Cancel signal sent to job #{job_id}. It will stop at the next checkpoint.",
+            "job_id": job_id,
+            "status": "cancelling",
+            "active_jobs": active_job_ids(),
+        }), 200
+    else:
+        return jsonify({
+            "message": f"Job #{job_id} is marked 'running' but not found in the active registry. It may have just finished.",
+            "job_id": job_id,
+        }), 200
+
+
+@pipeline_bp.route('/api/pipeline/cancel-all', methods=['POST'])
+def cancel_all_jobs():
+    """Cancel ALL running and pending jobs immediately."""
+    from app.cancel_registry import cancel_all as do_cancel_all, active_job_ids
+    from datetime import datetime, timezone
+
+    # Cancel pending jobs in the DB directly
+    pending_jobs = MatchJob.query.filter_by(status='pending').all()
+    for j in pending_jobs:
+        j.status = 'cancelled'
+        j.error_message = 'Cancelled by user (cancel-all).'
+        j.completed_at = datetime.now(timezone.utc)
+    db.session.commit()
+
+    # Signal all running jobs to stop
+    signalled = do_cancel_all()
+
+    return jsonify({
+        "message": f"Cancel-all signal sent. {len(pending_jobs)} pending job(s) cancelled, {signalled} running job(s) signalled.",
+        "pending_cancelled": len(pending_jobs),
+        "running_signalled": signalled,
+        "active_jobs": active_job_ids(),
+    }), 200
+

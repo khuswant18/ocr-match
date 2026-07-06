@@ -62,16 +62,9 @@ def _deskew(gray: np.ndarray) -> np.ndarray:
                           borderMode=cv2.BORDER_REPLICATE)
 
 
-def preprocess_for_ocr(img: np.ndarray) -> list[np.ndarray]:
-    print("\n>>>>>>>> STARTING IMAGE PREPROCESSING >>>>>>>>")
-    print(f"Input image shape: {img.shape}")
+def preprocess_for_ocr(img: np.ndarray) -> np.ndarray:
     """
-    Return TWO versions of the image for dual-pass OCR:
-      1. Light enhancement (good for clean/digital PDFs)
-      2. Aggressive enhancement (good for faded scans)
-
-    PaddleOCR runs on both and we merge the results, keeping the
-    higher-confidence detection for each text region.
+    Return a single enhanced image for OCR (light CLAHE).
     """
     if len(img.shape) == 2:
         gray = img
@@ -80,29 +73,16 @@ def preprocess_for_ocr(img: np.ndarray) -> list[np.ndarray]:
 
     gray = _deskew(gray)
 
-    # Pass 1: Light CLAHE only
     clahe_light = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    pass1 = clahe_light.apply(gray)
-    pass1_rgb = cv2.cvtColor(pass1, cv2.COLOR_GRAY2RGB)
+    enhanced = clahe_light.apply(gray)
+    rgb = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
 
-    # Pass 2: Aggressive — sharpen + stronger CLAHE + denoise
-    clahe_strong = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
-    enhanced = clahe_strong.apply(gray)
-    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], dtype=np.float32)
-    sharpened = cv2.filter2D(enhanced, -1, kernel)
-    denoised = cv2.fastNlMeansDenoising(sharpened, h=12, templateWindowSize=7, searchWindowSize=21)
-    pass2_rgb = cv2.cvtColor(denoised, cv2.COLOR_GRAY2RGB)
-    
-    print(f"Generated Pass 1 shape: {pass1_rgb.shape} | Pass 2 shape: {pass2_rgb.shape}")
-    print("<<<<<<<< FINISHED IMAGE PREPROCESSING <<<<<<<<\n")
-    
-    return [np.ascontiguousarray(pass1_rgb), np.ascontiguousarray(pass2_rgb)]
+    return np.ascontiguousarray(rgb)
 
 def load_images_from_request():
     """
-    Read the uploaded file from the Flask request and return a list of
-    (image_variants) ready for OCR. Each page produces multiple
-    preprocessed variants for dual-pass OCR.
+    Read the uploaded file from the Flask request and return a flat list
+    of preprocessed images (one per page), ready for OCR.
     """
     file = request.files.get('file')
     if file is None:
@@ -116,12 +96,7 @@ def load_images_from_request():
         raw_images = pdf_to_images(file_bytes, dpi=300)
         if not raw_images:
             return None
-        all_variants = []
-        for img in raw_images:
-            all_variants.append(preprocess_for_ocr(img))
-            
-        print(f"\n>>>>>>>> LOADED {len(all_variants)} PAGE(S) FROM PDF >>>>>>>>\n")
-        return all_variants
+        return [preprocess_for_ocr(img) for img in raw_images]
 
     npimg = np.frombuffer(file_bytes, np.uint8)
     img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)

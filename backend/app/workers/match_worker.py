@@ -3,12 +3,16 @@ import threading
 import time
 import os
 from datetime import datetime, timezone
+from app.cancel_registry import (
+    register, unregister, reset_cancel_all, check_cancelled,
+    JobCancelledError,
+)
 
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 2
 
-def _run_extraction_via_http(file_path, po_number):
+def _run_extraction_via_http(file_path, po_number, job_id):
     """
     Trigger OCR extraction by calling the /paddleOCR endpoint internally.
     PaddleOCR is NOT thread-safe, so we must call it via HTTP on the main
@@ -21,8 +25,11 @@ def _run_extraction_via_http(file_path, po_number):
 
     with open(file_path, 'rb') as f:
         files = {'file': (os.path.basename(file_path), f)}
-        data = {'po_number': po_number}
-        resp = req.post(url, files=files, data=data, timeout=120)
+        data = {'po_number': po_number, 'job_id': str(job_id)}
+        resp = req.post(url, files=files, data=data, timeout=300)
+
+    if resp.status_code == 499:
+        raise JobCancelledError("Job cancelled during OCR/parsing.")
 
     if resp.status_code != 200:
         error_detail = resp.json().get('error', resp.text) if resp.headers.get('content-type', '').startswith('application/json') else resp.text
@@ -52,15 +59,25 @@ def _process_one_job(app):
         if not job:
             return False
 
+        # Clear the global cancel-all flag so this new job can run
+        reset_cancel_all()
+
+        # Register a per-job cancel event
+        cancel_event = register(job.id)
+
         job.status = 'running'
         job.started_at = datetime.now(timezone.utc)
         db.session.commit()
-        logger.info(f"[WORKER] Processing job #{job.id} (type={job.job_type}) for PO {job.po_number}")
+        print(f"[WORKER] Processing job #{job.id} (type={job.job_type}) for PO {job.po_number}")
 
         try:
             if job.job_type == 'extract_and_match' and job.file_path:
-                invoice_id, parsed_data = _run_extraction_via_http(job.file_path, job.po_number)
-                logger.info(f"[WORKER] Extraction done for job #{job.id}, invoice_id={invoice_id}")
+                invoice_id, parsed_data = _run_extraction_via_http(
+                    job.file_path, job.po_number, job.id
+                )
+                print(f"[WORKER] Extraction done for job #{job.id}, invoice_id={invoice_id}")
+
+                check_cancelled(job.id)
 
                 env = job.input_json or {}
                 result = run_match_from_payload(
@@ -76,30 +93,38 @@ def _process_one_job(app):
             if "error" in result:
                 job.status = 'failed'
                 job.error_message = result["error"]
-                logger.warning(f"[WORKER] Job #{job.id} failed: {result['error']}")
+                print(f"[WORKER] Job #{job.id} failed: {result['error']}")
             else:
                 job.status = 'completed'
                 job.result_json = result
-                logger.info(f"[WORKER] Job #{job.id} completed successfully")
+                print(f"[WORKER] Job #{job.id} completed successfully")
+
+        except JobCancelledError as e:
+            job.status = 'cancelled'
+            job.error_message = str(e)
+            print(f"[WORKER] Job #{job.id} cancelled: {e}")
 
         except Exception as e:
             job.status = 'failed'
             job.error_message = str(e)
-            logger.error(f"[WORKER] Job #{job.id} crashed: {e}")
+            print(f"[WORKER] Job #{job.id} crashed: {e}")
+
+        finally:
+            unregister(job.id)
 
         job.completed_at = datetime.now(timezone.utc)
         db.session.commit()
         return True
 
 def _worker_loop(app):
-    logger.info("[WORKER] Match worker started.")
+    print("[WORKER] Match worker started.")
     while True:
         try:
             had_work = _process_one_job(app)
             if not had_work:
                 time.sleep(POLL_INTERVAL)
         except Exception as e:
-            logger.error(f"[WORKER] Unexpected error in worker loop: {e}")
+            print(f"[WORKER] Unexpected error in worker loop: {e}")
             time.sleep(POLL_INTERVAL * 5)
 
 def start_match_worker(app):
@@ -114,4 +139,4 @@ def start_match_worker(app):
         daemon=True,
     )
     thread.start()
-    logger.info("[WORKER] Match worker thread launched.")
+    print("[WORKER] Match worker thread launched.")

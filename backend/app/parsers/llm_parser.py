@@ -16,6 +16,7 @@ import logging
 import re
 import time
 import requests
+from app.cancel_registry import check_cancelled, JobCancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -630,7 +631,7 @@ def _fix_cross_line_item_bundle_swap(items: list[dict], ocr_text: str) -> None:
 
 
 
-def _call_groq(messages: list[dict]) -> dict | None:
+def _call_groq(messages: list[dict], job_id: int | None = None) -> dict | None:
     api_key = _groq_api_key()
     if not api_key:
         logger.warning("GROQ_API_KEY not set — skipping Groq.")
@@ -648,6 +649,7 @@ def _call_groq(messages: list[dict]) -> dict | None:
     }
 
     for attempt in range(1, MAX_RETRIES + 1):
+        check_cancelled(job_id)
         try:
             resp = requests.post(GROQ_BASE_URL, headers=headers, json=payload, timeout=120)
             if resp.status_code == 429:
@@ -658,6 +660,8 @@ def _call_groq(messages: list[dict]) -> dict | None:
             resp.raise_for_status()
             content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "{}")
             return json.loads(_extract_json_payload(content))
+        except JobCancelledError:
+            raise
         except requests.exceptions.Timeout:
             logger.warning(f"Groq timeout (attempt {attempt}).")
             time.sleep(RETRY_BACKOFF * attempt)
@@ -671,7 +675,8 @@ def _call_groq(messages: list[dict]) -> dict | None:
     return None
 
 
-def _call_openrouter(messages: list[dict]) -> dict | None:
+def _call_openrouter(messages: list[dict], job_id: int | None = None) -> dict | None:
+    check_cancelled(job_id)
     api_key = _openrouter_api_key()
     if not api_key:
         logger.error("No OPENROUTER_API_KEY — no LLM available.")
@@ -694,6 +699,8 @@ def _call_openrouter(messages: list[dict]) -> dict | None:
         resp.raise_for_status()
         content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "{}")
         return json.loads(_extract_json_payload(content))
+    except JobCancelledError:
+        raise
     except Exception as e:
         logger.error(f"OpenRouter fallback failed {e}")
         return None
@@ -701,7 +708,7 @@ def _call_openrouter(messages: list[dict]) -> dict | None:
 
 
 
-def parse_with_gemini(ocr_text: str, supplier_hint: str = "") -> dict:
+def parse_with_gemini(ocr_text: str, supplier_hint: str = "", job_id: int | None = None) -> dict:
     """
     Extract structured invoice data from OCR text using an LLM.
     Injects few-shot examples from past corrections for the same supplier.
@@ -710,6 +717,7 @@ def parse_with_gemini(ocr_text: str, supplier_hint: str = "") -> dict:
         logger.warning("Empty OCR text passed to LLM parser.")
         return {}
 
+    check_cancelled(job_id)
 
     feedback_block = ""
     try:
@@ -730,13 +738,13 @@ def parse_with_gemini(ocr_text: str, supplier_hint: str = "") -> dict:
         {"role": "user", "content": user_content},
     ]
 
-    result = _call_groq(messages)
+    result = _call_groq(messages, job_id=job_id)
     if result:
         logger.info("Parsed invoice via Groq.")
         return result
 
     logger.warning("Groq unavailable, falling back to OpenRouter.")
-    result = _call_openrouter(messages)
+    result = _call_openrouter(messages, job_id=job_id)
     if result:
         logger.info("Parsed invoice via OpenRouter.")
         return result
