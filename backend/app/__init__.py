@@ -41,9 +41,11 @@ def create_app():
         db.create_all()
     register_blueprints(app)
 
-    # Start the async match worker (daemon thread)
-    from app.workers.match_worker import start_match_worker
-    start_match_worker(app)
+    # NOTE: the background match worker is started by the serving entrypoint
+    # (run.py), NOT here. Starting it in create_app() would launch a second
+    # worker in the Werkzeug reloader's supervisor process (it re-execs the
+    # module), doubling PaddleOCR memory and splitting the in-process cancel
+    # registry so /cancel can't reach a job running in the other process.
 
     return app
 
