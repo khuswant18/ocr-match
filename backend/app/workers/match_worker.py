@@ -3,6 +3,7 @@ import threading
 import time
 import os
 from datetime import datetime, timezone
+from app.config import WORKER_JOB_MAX_RETRIES
 from app.cancel_registry import (
     register, unregister, reset_cancel_all, check_cancelled,
     JobCancelledError,
@@ -12,43 +13,42 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 2
 
-def _run_extraction_via_http(file_path, po_number, job_id):
+
+def _reap_orphaned_jobs(app):
     """
-    Trigger OCR extraction by calling the /paddleOCR endpoint internally.
-    PaddleOCR is NOT thread-safe, so we must call it via HTTP on the main
-    Flask thread rather than invoking it directly from the worker thread.
+    On startup, mark any job still 'running' as failed. Jobs run in-process,
+    so a 'running' row means the previous process died mid-job — it can never
+    resume. This is the safety valve that replaced the old 300s HTTP timeout.
     """
-    import requests as req
+    with app.app_context():
+        from app.models import db, MatchJob
 
-    backend_port = os.environ.get("FLASK_PORT", "4333")
-    url = f"http://127.0.0.1:{backend_port}/paddleOCR"
+        orphaned = MatchJob.query.filter_by(status='running').all()
+        if not orphaned:
+            return
+        for job in orphaned:
+            job.status = 'failed'
+            job.error_message = 'Worker restarted while job was in progress.'
+            job.completed_at = datetime.now(timezone.utc)
+        db.session.commit()
+        print(f"[WORKER] Reaped {len(orphaned)} orphaned 'running' job(s) on startup.")
 
-    with open(file_path, 'rb') as f:
-        files = {'file': (os.path.basename(file_path), f)}
-        data = {'po_number': po_number, 'job_id': str(job_id)}
-        resp = req.post(url, files=files, data=data, timeout=300)
-
-    if resp.status_code == 499:
-        raise JobCancelledError("Job cancelled during OCR/parsing.")
-
-    if resp.status_code != 200:
-        error_detail = resp.json().get('error', resp.text) if resp.headers.get('content-type', '').startswith('application/json') else resp.text
-        raise ValueError(f"OCR extraction failed (HTTP {resp.status_code}): {error_detail}")
-
-    result = resp.json()
-    if 'error' in result:
-        raise ValueError(f"OCR extraction error: {result['error']}")
-
-    return result.get('invoice_id'), result.get('parsed_data')
 
 def _process_one_job(app):
     """
     Claim the oldest pending job, execute it, and store the result.
     Returns True if a job was processed, False if the queue was empty.
+
+    OCR runs in-process via `extract_and_parse` (serialized by the OCR lock),
+    so there is no self-HTTP call and no artificial client timeout. Transient
+    failures (LLM temporarily unavailable, network) are retried up to
+    WORKER_JOB_MAX_RETRIES times; permanent failures are not.
     """
     with app.app_context():
         from app.models import db, MatchJob
         from app.services.matching_service import run_three_way_match, run_match_from_payload
+        from app.ocr.paddleOCR import extract_and_parse, ExtractionError
+        import requests as req
 
         job = (
             MatchJob.query
@@ -63,32 +63,61 @@ def _process_one_job(app):
         reset_cancel_all()
 
         # Register a per-job cancel event
-        cancel_event = register(job.id)
+        register(job.id)
 
         job.status = 'running'
         job.started_at = datetime.now(timezone.utc)
         db.session.commit()
         print(f"[WORKER] Processing job #{job.id} (type={job.job_type}) for PO {job.po_number}")
 
+        def _is_transient(exc):
+            # LLM temporarily unavailable (502) or a network hiccup — worth a retry.
+            if isinstance(exc, ExtractionError):
+                return exc.status_code == 502
+            return isinstance(exc, (req.exceptions.Timeout, req.exceptions.ConnectionError))
+
+        max_attempts = 1 + max(0, WORKER_JOB_MAX_RETRIES)
+
         try:
-            if job.job_type == 'extract_and_match' and job.file_path:
-                invoice_id, parsed_data = _run_extraction_via_http(
-                    job.file_path, job.po_number, job.id
-                )
-                print(f"[WORKER] Extraction done for job #{job.id}, invoice_id={invoice_id}")
+            result = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    if job.job_type == 'extract_and_match' and job.file_path:
+                        with open(job.file_path, 'rb') as f:
+                            file_bytes = f.read()
 
-                check_cancelled(job.id)
+                        invoice_id, parsed_data, _text, _meta = extract_and_parse(
+                            file_bytes,
+                            os.path.basename(job.file_path),
+                            po_number=job.po_number,
+                            job_id=job.id,
+                            existing_path=job.file_path,
+                        )
+                        print(f"[WORKER] Extraction done for job #{job.id}, invoice_id={invoice_id}")
 
-                env = job.input_json or {}
-                result = run_match_from_payload(
-                    job.po_number,
-                    env.get("po_lines"),
-                    env.get("pol_grn"),
-                    parsed_data,
-                    invoice_id,
-                )
-            else:
-                result = run_three_way_match(job.po_number)
+                        check_cancelled(job.id)
+
+                        env = job.input_json or {}
+                        result = run_match_from_payload(
+                            job.po_number,
+                            env.get("po_lines"),
+                            env.get("pol_grn"),
+                            parsed_data,
+                            invoice_id,
+                            job_id=job.id,
+                        )
+                    else:
+                        result = run_three_way_match(job.po_number)
+                    break  # success
+                except JobCancelledError:
+                    raise
+                except Exception as e:
+                    if attempt < max_attempts and _is_transient(e):
+                        print(f"[WORKER] Job #{job.id} transient error "
+                              f"(attempt {attempt}/{max_attempts}): {e}. Retrying.")
+                        check_cancelled(job.id)  # bail out if cancelled between attempts
+                        continue
+                    raise
 
             if "error" in result:
                 job.status = 'failed'
@@ -104,6 +133,11 @@ def _process_one_job(app):
             job.error_message = str(e)
             print(f"[WORKER] Job #{job.id} cancelled: {e}")
 
+        except ExtractionError as e:
+            job.status = 'failed'
+            job.error_message = e.message
+            print(f"[WORKER] Job #{job.id} failed: {e.message}")
+
         except Exception as e:
             job.status = 'failed'
             job.error_message = str(e)
@@ -116,8 +150,10 @@ def _process_one_job(app):
         db.session.commit()
         return True
 
+
 def _worker_loop(app):
     print("[WORKER] Match worker started.")
+    _reap_orphaned_jobs(app)
     while True:
         try:
             had_work = _process_one_job(app)
@@ -126,6 +162,7 @@ def _worker_loop(app):
         except Exception as e:
             print(f"[WORKER] Unexpected error in worker loop: {e}")
             time.sleep(POLL_INTERVAL * 5)
+
 
 def start_match_worker(app):
     """

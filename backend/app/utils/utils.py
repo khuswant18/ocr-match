@@ -79,16 +79,15 @@ def preprocess_for_ocr(img: np.ndarray) -> np.ndarray:
 
     return np.ascontiguousarray(rgb)
 
-def load_images_from_request():
+def load_images_from_bytes(file_bytes: bytes):
     """
-    Read the uploaded file from the Flask request and return a flat list
-    of preprocessed images (one per page), ready for OCR.
-    """
-    file = request.files.get('file')
-    if file is None:
-        return None
+    Turn raw uploaded file bytes (PDF or image) into a flat list of
+    preprocessed images (one per page), ready for OCR. Returns None if the
+    bytes are empty or cannot be decoded.
 
-    file_bytes = file.read()
+    Shared by the /paddleOCR HTTP route and the background worker, so both
+    paths run the identical PDF-vs-image + preprocessing pipeline.
+    """
     if not file_bytes:
         return None
 
@@ -104,6 +103,18 @@ def load_images_from_request():
         return None
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     return [preprocess_for_ocr(img)]
+
+
+def load_images_from_request():
+    """
+    Read the uploaded file from the Flask request and return a flat list
+    of preprocessed images (one per page), ready for OCR.
+    """
+    file = request.files.get('file')
+    if file is None:
+        return None
+
+    return load_images_from_bytes(file.read())
 
 
 def load_image():
