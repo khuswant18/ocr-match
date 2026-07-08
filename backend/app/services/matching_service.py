@@ -7,6 +7,7 @@ import difflib
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from mysql_db import get_connection
 from app.services.vector_service import index_po_items, find_ranked_candidates, delete_collection, RELAXED_THRESHOLD
+from app.cancel_registry import check_cancelled
 import uuid
 
 def _fetch_po_items(cursor, po_number):
@@ -511,10 +512,13 @@ def run_three_way_match(po_number):
         cursor.close()
         conn.close()
 
-def run_match_from_payload(po_number, po_lines, pol_grn, parsed_data, invoice_id=None):
+def run_match_from_payload(po_number, po_lines, pol_grn, parsed_data, invoice_id=None, job_id=None):
     """
     3-Way Match with PO/GRN supplied as JSON (raw SQL-column rows) and the invoice
     sourced from the OCR result. Fully in memory — no DB reads or writes.
+
+    `job_id` (optional) enables cancellation: checkpoints raise JobCancelledError
+    if the user cancels while matching is in progress.
     """
     # Save raw incoming PO and GRN payloads to JSON files for debugging
     os.makedirs('uploads', exist_ok=True)
@@ -557,6 +561,8 @@ def run_match_from_payload(po_number, po_lines, pol_grn, parsed_data, invoice_id
     if not inv_items:
         return {"error": "No invoice items extracted from the PDF."}
 
+    check_cancelled(job_id)
+
     # Build Qdrant vectors for current PO items once per matching run.
     # If Qdrant is unavailable, continue with legacy heuristics.
     vector_enabled = True
@@ -566,6 +572,8 @@ def run_match_from_payload(po_number, po_lines, pol_grn, parsed_data, invoice_id
     except Exception as e:
         vector_enabled = False
         print(f"[matching_service] Vector index skipped: {e}")
+
+    check_cancelled(job_id)
 
     _auto_match(po_items, inv_items, vector_enabled, collection_name=vector_collection)
     ui_results = _build_ui_results(po_items, grn_items, inv_items, po_number)
