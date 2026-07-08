@@ -38,8 +38,11 @@ OPENROUTER_BASE_URL = os.environ.get(
     "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/chat/completions"
 )
 
-MAX_RETRIES = 3
-RETRY_BACKOFF = 2
+from app.config import LLM_TIMEOUT, LLM_MAX_RETRIES, LLM_RETRY_BACKOFF
+
+# Bounded, env-configurable so the LLM stage can't exceed the job budget.
+MAX_RETRIES = LLM_MAX_RETRIES
+RETRY_BACKOFF = LLM_RETRY_BACKOFF
 
 def _extract_json_payload(text: str) -> str:
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
@@ -466,6 +469,13 @@ def _extract_price_candidates_from_item_section(ocr_text: str) -> list[float]:
     return vals
 
 
+# Bounds for the exponential price-rebalance DFS below, so invoices with many
+# line items can't hang the parser. Skip the search entirely once the space is
+# too large, and abort it past the node cap (falling back to the LLM's prices).
+_REBALANCE_MAX_SPACE = 50_000
+_REBALANCE_MAX_NODES = 200_000
+
+
 def _rebalance_item_prices_from_ocr(items: list[dict], financials: dict, ocr_text: str) -> None:
     target_subtotal = _to_float(financials.get("subtotal", 0))
     if target_subtotal <= 0:
@@ -505,13 +515,32 @@ def _rebalance_item_prices_from_ocr(items: list[dict], financials: dict, ocr_tex
         options_per_item.append(sorted(opts))
 
 
+    # This search is exponential in the number of items (∏ options_per_item).
+    # Skip it entirely when the space is too large so large invoices don't hang
+    # (a ~25-line invoice previously ran effectively forever).
+    search_space = 1
+    for opts in options_per_item:
+        search_space *= max(1, len(opts))
+        if search_space > _REBALANCE_MAX_SPACE:
+            logger.warning(
+                f"[VERIFY] Skipping price rebalance for {len(items)} items: "
+                f"search space too large."
+            )
+            return
+
     best_combo = None
     best_score = (float("inf"), float("inf"))
+    nodes = [0]
 
     base_prices = [round(_to_float(it.get("unit_price", 0)), 2) for it in items]
 
     def _dfs(i: int, current_prices: list[float], running_total: float):
         nonlocal best_combo, best_score
+        # Hard node cap as a safety net: keep the best combo found so far and
+        # stop exploring rather than hanging on a pathological input.
+        nodes[0] += 1
+        if nodes[0] > _REBALANCE_MAX_NODES:
+            return
         if i == len(items):
             diff = abs(round(running_total - target_subtotal, 2))
 
@@ -651,7 +680,7 @@ def _call_groq(messages: list[dict], job_id: int | None = None) -> dict | None:
     for attempt in range(1, MAX_RETRIES + 1):
         check_cancelled(job_id)
         try:
-            resp = requests.post(GROQ_BASE_URL, headers=headers, json=payload, timeout=120)
+            resp = requests.post(GROQ_BASE_URL, headers=headers, json=payload, timeout=LLM_TIMEOUT)
             if resp.status_code == 429:
                 wait = RETRY_BACKOFF * attempt
                 logger.warning(f"Groq rate-limited. Retry {attempt}/{MAX_RETRIES} in {wait}s.")
@@ -695,7 +724,7 @@ def _call_openrouter(messages: list[dict], job_id: int | None = None) -> dict | 
     }
 
     try:
-        resp = requests.post(OPENROUTER_BASE_URL, headers=headers, json=payload, timeout=120)
+        resp = requests.post(OPENROUTER_BASE_URL, headers=headers, json=payload, timeout=LLM_TIMEOUT)
         resp.raise_for_status()
         content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "{}")
         return json.loads(_extract_json_payload(content))
