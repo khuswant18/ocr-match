@@ -10,6 +10,18 @@ from app.services.vector_service import index_po_items, find_ranked_candidates, 
 from app.cancel_registry import check_cancelled
 import uuid
 
+
+def _to_num(val, default=0.0):
+    """Best-effort float coercion from external/JSON input — never raises.
+    Tolerates thousands separators (e.g. '1,234.50') and returns `default`
+    for None/blank/garbage."""
+    if val is None:
+        return default
+    try:
+        return float(str(val).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return default
+
 def _fetch_po_items(cursor, po_number):
     cursor.execute(
         """
@@ -178,9 +190,9 @@ def _po_items_from_lines(po_lines):
             or ""
         )
         items[code] = {
-            "qty":               float(r.get("po_total_qty") or 0),
-            "price":             float(r.get("purchase_price") or 0),
-            "conversion_factor": float(r.get("buying_conversion_factor") or 1.0),
+            "qty":               _to_num(r.get("po_total_qty")),
+            "price":             _to_num(r.get("purchase_price")),
+            "conversion_factor": _to_num(r.get("buying_conversion_factor"), 1.0) or 1.0,
             "desc":              str(desc),
         }
     return items
@@ -192,7 +204,7 @@ def _grn_items_from_lines(pol_grn):
         code = str(r.get("product_code", "")).strip()
         if not code:
             continue
-        qty = float(r.get("vo_tot_qty") or 0)
+        qty = _to_num(r.get("vo_tot_qty"))
         grn = str(r.get("vo_trans_no") or "")
         if code in items:
             items[code]["qty"] += qty
@@ -216,8 +228,8 @@ def _inv_items_from_ocr(parsed_data, invoice_id=None):
         if not code:
             unknown += 1
             code = f"unknown_{unknown}"
-        qty   = float(it.get("quantity") or 0)
-        price = float(it.get("unit_price") or 0)
+        qty   = _to_num(it.get("quantity"))
+        price = _to_num(it.get("unit_price"))
         desc  = str(it.get("description") or "")
         line  = {
             "invoice_item_id": None,

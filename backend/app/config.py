@@ -29,6 +29,10 @@ LLM_RETRY_BACKOFF = _env_int("LLM_RETRY_BACKOFF", 2)  # backoff base (seconds)
 # Permanent failures (bad file, low OCR confidence, cancelled) never retry.
 WORKER_JOB_MAX_RETRIES = _env_int("WORKER_JOB_MAX_RETRIES", 1)
 
+# --- Uploads ------------------------------------------------------------
+# Reject invoice uploads larger than this at the API boundary.
+MAX_UPLOAD_BYTES = _env_int("MAX_UPLOAD_MB", 25) * 1024 * 1024
+
 
 class ApplicationConfig:
     SECRET_KEY = os.environ["SECRET_KEY"]
