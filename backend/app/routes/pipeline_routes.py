@@ -5,6 +5,7 @@ import logging
 from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 from app.models import db, MatchJob
+from app.config import MAX_UPLOAD_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -13,11 +14,56 @@ pipeline_bp = Blueprint('pipeline', __name__)
 PIPELINE_UPLOAD_FOLDER = 'uploads/'
 os.makedirs(PIPELINE_UPLOAD_FOLDER, exist_ok=True)
 
+# Magic-byte signatures for the document types OCR can actually read.
+_IMAGE_MAGIC = (
+    b"\xff\xd8\xff",            # JPEG
+    b"\x89PNG\r\n\x1a\n",      # PNG
+    b"GIF87a", b"GIF89a",      # GIF
+    b"II*\x00", b"MM\x00*",    # TIFF
+    b"BM",                      # BMP
+)
+
+
+def _is_number(val):
+    """True if val is (or coerces to) a number — tolerates '1,234.5'."""
+    if isinstance(val, bool):
+        return False
+    if isinstance(val, (int, float)):
+        return True
+    try:
+        float(str(val).replace(",", "").strip())
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _looks_like_pdf_or_image(head: bytes) -> bool:
+    """Cheap content sniff so we reject non-PDF/non-image uploads at the door."""
+    if head[:5] == b"%PDF-":
+        return True
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":   # WEBP
+        return True
+    return any(head.startswith(sig) for sig in _IMAGE_MAGIC)
+
 @pipeline_bp.route('/api/pipeline/extract-and-match', methods=['POST'])
 def extract_and_match():
     file = request.files.get('file') or request.files.get('image')
     if not file or not file.filename:
         return jsonify({"error": "An invoice file is required (form-data key: 'file' or 'image')"}), 400
+
+    # Guard file size + type before saving/queuing (bad files otherwise only
+    # fail deep inside OCR, minutes later, as a confusing 'failed' job).
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size == 0:
+        return jsonify({"error": "Uploaded file is empty"}), 400
+    if size > MAX_UPLOAD_BYTES:
+        return jsonify({"error": f"File too large ({size} bytes); max is {MAX_UPLOAD_BYTES} bytes"}), 400
+    head = file.read(16)
+    file.seek(0)
+    if not _looks_like_pdf_or_image(head):
+        return jsonify({"error": "Unsupported file type; expected a PDF or image (PDF/JPEG/PNG/GIF/TIFF/BMP/WEBP)"}), 400
 
     raw_data = request.form.get('data')
     if not raw_data:
@@ -37,6 +83,24 @@ def extract_and_match():
     po_lines = envelope.get('po_lines')
     if not isinstance(po_lines, list) or not po_lines:
         return jsonify({"error": "po_lines must be a non-empty list in the 'data' envelope"}), 400
+
+    # Validate each PO line: must be an object with a product_code, and any
+    # numeric fields present must actually be numeric (else matching silently
+    # zeroes them or the job fails on coercion later).
+    for idx, line in enumerate(po_lines):
+        if not isinstance(line, dict):
+            return jsonify({"error": f"po_lines[{idx}] must be an object"}), 400
+        if not str(line.get('product_code', '')).strip():
+            return jsonify({"error": f"po_lines[{idx}].product_code is required"}), 400
+        for numfield in ("po_total_qty", "purchase_price", "buying_conversion_factor"):
+            val = line.get(numfield)
+            if val is not None and val != "" and not _is_number(val):
+                return jsonify({"error": f"po_lines[{idx}].{numfield} must be numeric (got {val!r})"}), 400
+
+    # GRN is optional, but if provided it must be a list.
+    pol_grn = envelope.get('pol_grn')
+    if pol_grn is not None and not isinstance(pol_grn, list):
+        return jsonify({"error": "pol_grn must be a list when provided"}), 400
 
     filename = secure_filename(file.filename)
     save_path = os.path.join(PIPELINE_UPLOAD_FOLDER, f"{int(time.time())}_{filename}")
