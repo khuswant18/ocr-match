@@ -31,8 +31,11 @@ services:
       - OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/chat/completions
       - OPENROUTER_HTTP_REFERER=http://localhost
       - OPENROUTER_APP_TITLE=ocr-match
+      # PSR feature: invoice data source (see psr/ mount below).
+      - PSR_INVOICE_SOURCE=/psr/cc-invoice-08-07-2026-v1.csv
     volumes:
         - ./backend:/app
+        - ./psr:/psr:ro
         - paddle_models:/root/.paddleocr
     depends_on:
       mysql:

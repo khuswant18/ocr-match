@@ -3,6 +3,7 @@ import { Divider } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import HistoryIcon from "@mui/icons-material/History";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import IconButton from "@mui/material/IconButton";
 import ArrowBackIosIcon from "@mui/icons-material/ArrowBackIos";
 import { useMediaQuery } from "@mui/material";
@@ -61,6 +62,7 @@ const SideMenu = (props) => {
               <LinkItem to="/" Icon={DashboardIcon} text="Dashboard" />
               <LinkItem to="/history" Icon={HistoryIcon} text="Your scans" />
               <LinkItem to="/matching" Icon={CompareArrowsIcon} text="Three-Way Match" />
+              <LinkItem to="/psr-match" Icon={ReceiptLongIcon} text="PSR Match" />
             </div>
           </div>
         </>

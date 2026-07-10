@@ -17,3 +17,6 @@
 temp_*
 *.tmp
 .venv/
+
+# ── PSR sample data (real invoice scans + financial CSV — not for the repo) ────
+psr/
