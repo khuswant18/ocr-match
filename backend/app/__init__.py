@@ -57,6 +57,7 @@ def register_blueprints(app):
     from app.routes.main_routes import main_bp
     from app.routes.matching_routes import matching_bp
     from app.routes.pipeline_routes import pipeline_bp
+    from app.routes.psr_routes import psr_bp
 
     app.register_blueprint(preprocessing_bp)
     app.register_blueprint(getData_bp)
@@ -64,5 +65,6 @@ def register_blueprints(app):
     app.register_blueprint(main_bp)
     app.register_blueprint(matching_bp)
     app.register_blueprint(pipeline_bp)
+    app.register_blueprint(psr_bp)
 
 
