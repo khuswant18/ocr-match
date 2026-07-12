@@ -2,9 +2,10 @@
 PSR (Payment Summary Report / handwritten Sales Invoice) extraction + amount match.
 
 Self-contained, PaddleOCR-only (no LLM / Groq / vector). Given an uploaded PSR
-scan (image or PDF), OCR it, pull the "TOTAL AMOUNT DUE", find the linked record
-in the invoice data source *by filename*, and report whether the extracted total
-matches that record's `invoice_amount`.
+scan (image or PDF), OCR it, link it to a record in the invoice data source by
+its printed invoice number (falling back to file name), pull the
+"TOTAL AMOUNT DUE", and report whether the extracted total matches that
+record's `invoice_amount`.
 """
 import os
 import re
