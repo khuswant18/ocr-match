@@ -434,7 +434,7 @@ def _load_psr_images(file_bytes):
 
 
 def _run_ocr(file_bytes):
-    """OCR raw file bytes -> (average_confidence_0to1, reconstructed_text)."""
+    """OCR raw file bytes -> (average_confidence_0to1, reconstructed_text, images, page_results)."""
     images = _load_psr_images(file_bytes)
     if not images:
         raise ExtractionError("No valid image or PDF found in request.", status_code=400)
