@@ -15,7 +15,7 @@ psr_bp = Blueprint('psr', __name__)
 
 @psr_bp.route('/api/psr/extract-and-match', methods=['POST'])
 def psr_extract_and_match():
-    """Upload a PSR image/PDF, OCR the total, and match it against the invoice data by filename."""
+    """Upload a PSR image/PDF, OCR the total, and match it against the invoice data by invoice number (file name as fallback)."""
     from app.services.psr_service import run_psr_extract_and_match
 
     file = request.files.get('file') or request.files.get('image') or request.files.get('pdf')
