@@ -482,8 +482,14 @@ def run_psr_extract_and_match(file_bytes, filename, override_name=None):
     linked = []
     matched = False
     for rec in matched_records:
-        expected = _safe_float(rec.get("invoice_amount"))
-        within = total is not None and abs(total - expected) <= MATCH_TOLERANCE
+        # A blank/invalid invoice_amount is unknown, not 0.0 — otherwise a
+        # missing expected amount would produce a bogus difference/match.
+        expected = _safe_float(rec.get("invoice_amount"), None)
+        within = (
+            expected is not None
+            and total is not None
+            and abs(total - expected) <= MATCH_TOLERANCE
+        )
         if within:
             matched = True
         linked.append({
@@ -491,7 +497,7 @@ def run_psr_extract_and_match(file_bytes, filename, override_name=None):
             "invoice_amount": expected,
             "reference_number": rec.get("reference_number"),
             "invoice_num": rec.get("invoice_num"),
-            "difference": None if total is None else round(total - expected, 4),
+            "difference": None if (total is None or expected is None) else round(total - expected, 4),
             "within_tolerance": within,
         })
 
