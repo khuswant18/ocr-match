@@ -89,7 +89,8 @@ const PsrMatchPage = () => {
           </Typography>
           <Typography className={classes.subtitle}>
             Extract the TOTAL from a Payment Summary Report (PaddleOCR) and
-            reconcile it against the invoice record linked by filename.
+            reconcile it against the invoice record linked by its invoice
+            number (file name as fallback).
           </Typography>
         </div>
 
