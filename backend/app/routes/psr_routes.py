@@ -37,6 +37,6 @@ def psr_extract_and_match():
         return jsonify(result), 200
     except ExtractionError as e:
         return jsonify({'error': e.message, **e.payload}), e.status_code
-    except Exception as e:
-        logging.exception('Fatal error in PSR pipeline:')
-        return jsonify({'error': 'An internal server error occurred.', 'details': str(e)}), 500
+    except Exception:
+        logger.exception('Fatal error in PSR pipeline:')
+        return jsonify({'error': 'An internal server error occurred.'}), 500
