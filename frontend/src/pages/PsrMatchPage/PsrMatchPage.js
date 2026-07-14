@@ -33,9 +33,12 @@ const STATUS_CHIP = {
   no_total_found: { label: "Total unreadable", color: "warning" },
 };
 
-const METHOD_LABEL = {
-  invoice_num: "invoice number",
-  file_name: "file name",
+const OUTCOME_TEXT = {
+  matched: "Extracted total matches the linked invoice record.",
+  mismatch: "Linked to an invoice record, but the OCR'd total differs from its amount.",
+  no_record: "No invoice record matched this document's invoice number or file name.",
+  no_total_found:
+    "Linked to an invoice record, but the total could not be read from the document.",
 };
 
 const PsrMatchPage = () => {
@@ -46,7 +49,6 @@ const PsrMatchPage = () => {
   const [jobId, setJobId] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-  const [showText, setShowText] = useState(false);
 
   const onPick = (e) => {
     const f = e.target.files?.[0] || null;
@@ -62,7 +64,8 @@ const PsrMatchPage = () => {
       const res = await httpRequest.get(`${BACKEND_URL}/api/psr/job/${id}`);
       const status = res.data.status;
       if (status === "completed") {
-        setResult(res.data.result);
+        // ocr_data / raw_data / match_summary sit at the top level of the response.
+        setResult(res.data);
         setLoading(false);
       } else if (status === "failed" || status === "cancelled") {
         setError(res.data.error || `Job ${status}`);
@@ -97,7 +100,36 @@ const PsrMatchPage = () => {
     }
   };
 
-  const chip = result ? STATUS_CHIP[result.status] : null;
+  const ms = result?.match_summary || {};
+  const ocr = result?.ocr_data || {};
+  const rawd = result?.raw_data || null;
+  const chip = result ? STATUS_CHIP[ms.outcome] : null;
+  const linkedRows = result
+    ? [
+        ...(rawd
+          ? [
+              {
+                invoice_num: rawd.invoice_num,
+                reference_number: rawd.reference_number,
+                invoice_amount: rawd.amount,
+                invoice_date: rawd.invoice_date,
+                file_name: rawd.pdf_name,
+                difference: ms.amount_diff,
+                within_tolerance: ms.amount_match,
+              },
+            ]
+          : []),
+        ...(result.additional_matches || []).map((m) => ({
+          invoice_num: m.invoice_num,
+          reference_number: m.reference_number,
+          invoice_amount: m.invoice_amount,
+          invoice_date: m.invoice_date,
+          file_name: m.file_name,
+          difference: m.difference,
+          within_tolerance: m.within_tolerance,
+        })),
+      ]
+    : [];
 
   return (
     <AppLayout userName="Demo User">
@@ -172,23 +204,18 @@ const PsrMatchPage = () => {
 
         {result && !loading && (
           <>
-            {result.status === "matched" ? (
+            {ms.outcome === "matched" ? (
               <div className={classes.matchedBanner}>
                 <CheckCircleIcon sx={{ color: "#2e7d32", fontSize: 40, mr: 2 }} />
                 <Typography sx={{ color: "#2e7d32", fontWeight: 700, fontSize: "1.2rem" }}>
-                  Extracted total matches the invoice record.
+                  {OUTCOME_TEXT[ms.outcome]}
                 </Typography>
               </div>
             ) : (
               <div className={classes.summaryHeader}>
                 {chip && <Chip label={chip.label} color={chip.color} />}
                 <Typography sx={{ color: "#666" }}>
-                  {result.status === "mismatch" &&
-                    "Linked to an invoice record, but the OCR'd total differs from its amount (handwritten totals read unreliably — check the OCR text)."}
-                  {result.status === "no_record" &&
-                    "No invoice record matched this document's invoice number or file name."}
-                  {result.status === "no_total_found" &&
-                    "Linked to an invoice record, but the handwritten total could not be read. Verify against the expected amount below."}
+                  {OUTCOME_TEXT[ms.outcome]}
                 </Typography>
               </div>
             )}
@@ -197,64 +224,59 @@ const PsrMatchPage = () => {
               <div className={classes.summaryCard}>
                 <Typography sx={{ color: "#666" }}>Invoice No.</Typography>
                 <Typography variant="h4">
-                  {result.linked?.[0]?.invoice_num ||
-                    result.extracted_invoice_number ||
-                    "—"}
+                  {rawd?.invoice_num || ocr.invoice_num || "—"}
                 </Typography>
-                <Typography sx={{ color: "#888", fontSize: "0.78rem", mt: 0.5 }}>
-                  {result.match_method
-                    ? `linked via ${METHOD_LABEL[result.match_method] || result.match_method}`
-                    : "no record linked"}
-                </Typography>
-                {result.match_method === "file_name" &&
-                  result.extracted_invoice_number &&
-                  String(result.extracted_invoice_number) !==
-                    String(result.linked?.[0]?.invoice_num) && (
-                    <Typography sx={{ color: "#b26a00", fontSize: "0.72rem", mt: 0.3 }}>
-                      OCR misread the No. stamp as {result.extracted_invoice_number}
+                {rawd &&
+                  !ms.invoice_num_match &&
+                  ocr.invoice_num &&
+                  String(ocr.invoice_num) !== String(rawd.invoice_num) && (
+                    <Typography sx={{ color: "#b26a00", fontSize: "0.72rem", mt: 0.5 }}>
+                      OCR misread the No. stamp as {ocr.invoice_num}
                     </Typography>
                   )}
               </div>
               <div className={classes.summaryCard}>
-                <Typography sx={{ color: "#666" }}>Expected (invoice_amount)</Typography>
+                <Typography sx={{ color: "#666" }}>Expected (invoice amount)</Typography>
                 <Typography variant="h4">
-                  {result.linked?.length ? fmt(result.linked[0].invoice_amount) : "—"}
+                  {rawd ? fmt(rawd.amount) : "—"}
                 </Typography>
+                {rawd?.invoice_date && (
+                  <Typography sx={{ color: "#888", fontSize: "0.78rem", mt: 0.5 }}>
+                    dated {rawd.invoice_date}
+                  </Typography>
+                )}
               </div>
               <div className={classes.summaryCard}>
                 <Typography sx={{ color: "#666" }}>Extracted Total (OCR)</Typography>
                 <Typography variant="h4">
-                  {result.extracted_total != null ? fmt(result.extracted_total) : "—"}
+                  {ocr.amount != null ? fmt(ocr.amount) : "—"}
                 </Typography>
-                {result.extracted_total == null && result.total_raw && (
+                {ocr.amount == null && ocr.amount_ocr_raw && (
                   <Typography sx={{ color: "#b26a00", fontSize: "0.78rem", mt: 0.5 }}>
-                    OCR read “{result.total_raw}” — unreadable/low confidence
-                  </Typography>
-                )}
-                {result.extracted_total != null && result.total_confidence != null && (
-                  <Typography sx={{ color: "#888", fontSize: "0.78rem", mt: 0.5 }}>
-                    confidence {Math.round(result.total_confidence * 100)}%
+                    OCR read “{ocr.amount_ocr_raw}” — unreadable/low confidence
                   </Typography>
                 )}
               </div>
               <div className={classes.summaryCard}>
                 <Typography sx={{ color: "#666" }}>Difference</Typography>
                 <Typography variant="h4">
-                  {result.linked?.length ? fmt(result.linked[0].difference) : "—"}
+                  {ms.amount_diff != null ? fmt(ms.amount_diff) : "—"}
                 </Typography>
               </div>
               <div className={classes.summaryCard}>
                 <Typography sx={{ color: "#666" }}>OCR Confidence</Typography>
-                <Typography variant="h4">{result.average_confidence}%</Typography>
+                <Typography variant="h4">
+                  {ocr.average_confidence != null ? `${ocr.average_confidence}%` : "—"}
+                </Typography>
               </div>
             </div>
 
-            {result.linked?.length > 0 && (
+            {linkedRows.length > 0 && (
               <Paper className={classes.panel} elevation={2} sx={{ mt: 3, p: 2 }}>
                 <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, color: "#333" }}>
-                  Linked Invoice Record{result.linked.length > 1 ? "s" : ""}
+                  Linked Invoice Record{linkedRows.length > 1 ? "s" : ""}
                 </Typography>
-                {result.linked.map((row, i) => (
+                {linkedRows.map((row, i) => (
                   <div key={i} className={classes.linkRow}>
                     <Chip
                       size="small"
@@ -272,28 +294,6 @@ const PsrMatchPage = () => {
                 ))}
               </Paper>
             )}
-
-            <Paper className={classes.panel} elevation={2} sx={{ mt: 3, p: 2 }}>
-              <div className={classes.candidateRow}>
-                <Typography sx={{ fontWeight: 600, color: "#333" }}>
-                  Numeric candidates found:
-                </Typography>
-                {(result.candidates || []).slice(0, 12).map((c, i) => (
-                  <Chip key={i} size="small" variant="outlined" label={fmt(c)} />
-                ))}
-                {(!result.candidates || result.candidates.length === 0) && (
-                  <Typography sx={{ color: "#888" }}>none</Typography>
-                )}
-              </div>
-              <Button
-                size="small"
-                sx={{ mt: 1, textTransform: "none" }}
-                onClick={() => setShowText((s) => !s)}
-              >
-                {showText ? "Hide" : "Show"} raw OCR text
-              </Button>
-              {showText && <pre className={classes.ocrText}>{result.ocr_text}</pre>}
-            </Paper>
           </>
         )}
       </div>
