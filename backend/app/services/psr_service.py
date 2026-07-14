@@ -23,6 +23,7 @@ from app.utils.operations import process_paddleocr_text, _safe_float
 # Reuse the shared PaddleOCR singleton + its lock + the route's error type.
 # Importing these does NOT build a second (heavy) predictor.
 from app.ocr.paddleOCR import ocr, _ocr_lock, ExtractionError
+from app.cancel_registry import check_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -326,7 +327,7 @@ def _band_amount(boxes, label):
 _ROI_MIN_VOTES = 4  # of ~16 samples per document
 
 
-def _reocr_total_cell(image, label):
+def _reocr_total_cell(image, label, job_id=None):
     """Second pass over the cell right of the total label: consistency voting.
 
     The full-page recognizer drops digits on slanted handwritten totals
@@ -344,6 +345,7 @@ def _reocr_total_cell(image, label):
     votes = Counter()
     conf_of = {}
     for dx in (0.025, 0.02, 0.015, 0.01):
+        check_cancelled(job_id)
         x0 = max(0, int(xr - dx * W))
         cell = image[y0:y1, x0:W]
         if cell.shape[0] < 4 or cell.shape[1] < 4:
@@ -381,7 +383,7 @@ def _reocr_total_cell(image, label):
     return None
 
 
-def extract_total(page_results, images):
+def extract_total(page_results, images, job_id=None):
     """
     Read the document total: locate the "TOTAL AMOUNT DUE" label, prefer a clean
     full-page read, and fall back to an upscaled ROI re-OCR of the cell to its
@@ -406,7 +408,7 @@ def extract_total(page_results, images):
 
         # 2) Full page couldn't read it cleanly — retry the cell with the voting
         #    sweep, which recovers digits the full-page pass drops.
-        roi = _reocr_total_cell(image, label)
+        roi = _reocr_total_cell(image, label, job_id=job_id)
         if roi is not None:
             return roi  # (value, raw_token, confidence)
 
@@ -433,7 +435,7 @@ def _load_psr_images(file_bytes):
     return [np.ascontiguousarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))]
 
 
-def _run_ocr(file_bytes):
+def _run_ocr(file_bytes, job_id=None):
     """OCR raw file bytes -> (average_confidence_0to1, reconstructed_text, images, page_results)."""
     images = _load_psr_images(file_bytes)
     if not images:
@@ -443,6 +445,7 @@ def _run_ocr(file_bytes):
     with _ocr_lock:
         page_results = []
         for page_img in images:
+            check_cancelled(job_id)
             page_result = ocr.ocr(page_img, cls=True)
             page_results.append(page_result[0] if (page_result and page_result[0]) else [])
 
@@ -454,7 +457,7 @@ def _run_ocr(file_bytes):
     return avg_conf, text, images, page_results
 
 
-def run_psr_extract_and_match(file_bytes, filename, override_name=None):
+def run_psr_extract_and_match(file_bytes, filename, override_name=None, job_id=None):
     """
     Full PSR pipeline: OCR the document, read its printed invoice number and
     total, link it to an invoice record, and compare the total against that
@@ -465,11 +468,14 @@ def run_psr_extract_and_match(file_bytes, filename, override_name=None):
       2. file name — basename matched to CSV `file_name` (fallback; filenames
          are unreliable because of browser-renamed duplicates and shared names).
     """
-    avg_conf, text, images, page_results = _run_ocr(file_bytes)
-    total, total_raw, total_conf = extract_total(page_results, images)
+    check_cancelled(job_id)
+    avg_conf, text, images, page_results = _run_ocr(file_bytes, job_id=job_id)
+    check_cancelled(job_id)
+    total, total_raw, total_conf = extract_total(page_results, images, job_id=job_id)
     candidates = collect_candidates(text)
     extracted_numbers = extract_invoice_numbers(text)
 
+    check_cancelled(job_id)
     link_name = override_name or filename
     records = load_invoice_records()
 
