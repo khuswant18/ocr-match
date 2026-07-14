@@ -86,7 +86,12 @@ _BOILERPLATE_RE = re.compile(
 # Fields the matcher surfaces. All of these sit to the LEFT of the CSV's
 # free-text `invoice_remarks` column, so they stay correctly aligned even when
 # that column contains malformed embedded JSON (see _load_csv_records).
-_NEEDED_COLUMNS = ("file_name", "invoice_amount", "reference_number", "invoice_num")
+_NEEDED_COLUMNS = ("file_name", "invoice_amount", "reference_number", "invoice_num", "invoice_date")
+
+# A date on the document (e.g. "12-19-25", "12/19/2025"). Best-effort only —
+# handwritten dates read unreliably, so this is informational, not a match key.
+# No leading \b: OCR often glues the date to adjacent text ("...gate12-19-25").
+_DATE_RE = re.compile(r"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})")
 
 # A token that looks like a document filename.
 _DOC_RE = re.compile(r".+\.(?:pdf|jpe?g|png|tiff?|bmp|webp)$", re.I)
@@ -198,6 +203,29 @@ def extract_invoice_numbers(text):
             seen.add(norm)
             out.append(norm)
     return out
+
+
+def extract_invoice_date(text):
+    """Best-effort document date from OCR text; None if none is readable.
+
+    Prefers a date on a line mentioning "date" (skipping printed boilerplate like
+    permit "Date Issued" lines), else the first plausible date on the page.
+    """
+    lines = (text or "").splitlines()
+    for line in lines:
+        if _BOILERPLATE_RE.search(line):
+            continue
+        if "date" in line.lower():
+            m = _DATE_RE.search(line)
+            if m:
+                return m.group(1)
+    for line in lines:
+        if _BOILERPLATE_RE.search(line):
+            continue
+        m = _DATE_RE.search(line)
+        if m:
+            return m.group(1)
+    return None
 
 
 def find_by_invoice_number(records, text):
@@ -474,6 +502,7 @@ def run_psr_extract_and_match(file_bytes, filename, override_name=None, job_id=N
     total, total_raw, total_conf = extract_total(page_results, images, job_id=job_id)
     candidates = collect_candidates(text)
     extracted_numbers = extract_invoice_numbers(text)
+    extracted_date = extract_invoice_date(text)
 
     check_cancelled(job_id)
     link_name = override_name or filename
@@ -503,9 +532,20 @@ def run_psr_extract_and_match(file_bytes, filename, override_name=None, job_id=N
             "invoice_amount": expected,
             "reference_number": rec.get("reference_number"),
             "invoice_num": rec.get("invoice_num"),
+            "invoice_date": rec.get("invoice_date"),
             "difference": None if (total is None or expected is None) else round(total - expected, 4),
             "within_tolerance": within,
         })
+
+    # Did the OCR-read invoice number agree with the linked record's? True by
+    # construction when linked by invoice_num; for filename links, compare.
+    invoice_num_match = False
+    if matched_records:
+        rec_norm = _norm_invnum(matched_records[0].get("invoice_num"))
+        invoice_num_match = (
+            match_method == "invoice_num"
+            or (rec_norm is not None and rec_norm in set(extracted_numbers))
+        )
 
     if not matched_records:
         status = "no_record"
@@ -520,6 +560,8 @@ def run_psr_extract_and_match(file_bytes, filename, override_name=None, job_id=N
         "file_name": os.path.basename(str(link_name)) if link_name else None,
         "extracted_invoice_number": matched_num or (extracted_numbers[0] if extracted_numbers else None),
         "extracted_invoice_candidates": extracted_numbers,
+        "extracted_invoice_date": extracted_date,
+        "invoice_num_match": invoice_num_match,
         "match_method": match_method,
         "extracted_total": total,
         "total_raw": total_raw,
