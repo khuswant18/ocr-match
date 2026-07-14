@@ -37,6 +37,11 @@ def create_app():
     db.init_app(app)
     bcrypt.init_app(app)
 
+    # Import models so every table (match_jobs, psr_jobs, invoices, …) is
+    # registered on db.metadata before create_all() — otherwise newly added
+    # models get no table until something imports them.
+    from app import models  # noqa: F401
+
     with app.app_context():
         db.create_all()
     register_blueprints(app)
