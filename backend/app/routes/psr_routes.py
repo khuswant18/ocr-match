@@ -88,9 +88,58 @@ def psr_extract_and_match():
     }), 202
 
 
+def _format_psr_result(raw):
+    """Shape the worker's raw result into a clean, grouped API response.
+
+      - `ocr_data`     : what was read from the uploaded document (OCR side).
+      - `raw_data`     : the matched invoice record it reconciles against, or null.
+      - `match_summary`: the field-by-field comparison + outcome.
+    """
+    if not raw:
+        return {}
+
+    linked = raw.get("linked") or []
+    primary = linked[0] if linked else None
+
+    ocr_data = {
+        "invoice_num": raw.get("extracted_invoice_number"),
+        "amount": raw.get("extracted_total"),
+        "amount_ocr_raw": raw.get("total_raw"),
+        "invoice_date": raw.get("extracted_invoice_date"),
+        "average_confidence": raw.get("average_confidence"),
+    }
+
+    raw_data = None
+    if primary:
+        raw_data = {
+            "invoice_num": primary.get("invoice_num"),
+            "amount": primary.get("invoice_amount"),
+            "invoice_date": primary.get("invoice_date"),
+            "reference_number": primary.get("reference_number"),
+            "pdf_name": primary.get("file_name"),
+        }
+
+    match_summary = {
+        "outcome": raw.get("status"),
+        "matched": bool(raw.get("matched")),
+        "invoice_num_match": bool(raw.get("invoice_num_match")),
+        "amount_match": bool(primary.get("within_tolerance")) if primary else False,
+        "amount_diff": primary.get("difference") if primary else None,
+    }
+
+    return {
+        "ocr_data": ocr_data,
+        "raw_data": raw_data,
+        "match_summary": match_summary,
+    }
+
+
 @psr_bp.route('/api/psr/job/<int:job_id>', methods=['GET'])
 def get_psr_job(job_id):
-    """Poll a PSR job's status; includes the reconciliation result when completed."""
+    """Poll a PSR job's status; includes the reconciliation result when completed.
+
+    Pass ?debug=1 to also include diagnostics (raw OCR text + candidate lists).
+    """
     job = PsrJob.query.get(job_id)
     if not job:
         return jsonify({'error': 'Job not found'}), 404
@@ -110,7 +159,7 @@ def get_psr_job(job_id):
     }
 
     if job.status == 'completed':
-        response['result'] = job.result_json or {}
+        response.update(_format_psr_result(job.result_json))
     elif job.status in ('failed', 'cancelled'):
         response['error'] = job.error_message
 
