@@ -111,3 +111,23 @@ class MatchJob(db.Model):
     job_type      = db.Column(db.String(30), default='match')  # 'match' or 'extract_and_match'
     file_path     = db.Column(db.String(500), nullable=True)   # invoice file for extract_and_match
     input_json    = db.Column(db.JSON, nullable=True)          # the full PO/GRN envelope (extract_and_match)
+
+
+class PsrJob(db.Model):
+    """
+    Async PSR (Payment Summary Report) extraction + reconciliation job queue.
+    The API enqueues a job; the PSR worker picks it up, runs OCR + matching,
+    and stores the result. Mirrors MatchJob but has no PO context.
+    """
+    __tablename__ = "psr_jobs"
+    id                = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    status            = db.Column(db.String(20), default='pending', index=True)
+    created_at        = db.Column(db.DateTime, server_default=db.func.now())
+    started_at        = db.Column(db.DateTime, nullable=True)
+    completed_at      = db.Column(db.DateTime, nullable=True)
+    result_json       = db.Column(db.JSON, nullable=True)
+    error_message     = db.Column(db.Text, nullable=True)
+    triggered_by      = db.Column(db.String(50), default='api')
+    file_path         = db.Column(db.String(500), nullable=False)   # saved upload
+    original_filename = db.Column(db.String(500), nullable=True)    # for filename-based linking
+    override_name     = db.Column(db.String(500), nullable=True)    # optional link-name override
