@@ -43,6 +43,7 @@ const PsrMatchPage = () => {
   const fileInputRef = useRef(null);
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [jobId, setJobId] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [showText, setShowText] = useState(false);
@@ -54,11 +55,33 @@ const PsrMatchPage = () => {
     setError(null);
   };
 
+  // The backend runs OCR asynchronously: POST enqueues a job (202 + job_id),
+  // then we poll GET /api/psr/job/<id> until it is completed/failed/cancelled.
+  const pollJob = async (id) => {
+    try {
+      const res = await httpRequest.get(`${BACKEND_URL}/api/psr/job/${id}`);
+      const status = res.data.status;
+      if (status === "completed") {
+        setResult(res.data.result);
+        setLoading(false);
+      } else if (status === "failed" || status === "cancelled") {
+        setError(res.data.error || `Job ${status}`);
+        setLoading(false);
+      } else {
+        setTimeout(() => pollJob(id), 1500); // pending / running
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+      setLoading(false);
+    }
+  };
+
   const runMatch = async () => {
     if (!file) return;
     setLoading(true);
     setResult(null);
     setError(null);
+    setJobId(null);
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -66,11 +89,10 @@ const PsrMatchPage = () => {
         `${BACKEND_URL}/api/psr/extract-and-match`,
         formData,
       );
-      if (res.data.error) setError(res.data.error);
-      else setResult(res.data);
+      setJobId(res.data.job_id);
+      pollJob(res.data.job_id);
     } catch (err) {
       setError(err.response?.data?.error || err.message);
-    } finally {
       setLoading(false);
     }
   };
@@ -140,6 +162,11 @@ const PsrMatchPage = () => {
         {loading && (
           <div className={classes.loader}>
             <CircularProgress size={48} sx={{ color: "#854de0" }} />
+            {jobId && (
+              <Typography sx={{ color: "#666", ml: 2, alignSelf: "center" }}>
+                Job #{jobId} processing…
+              </Typography>
+            )}
           </div>
         )}
 
