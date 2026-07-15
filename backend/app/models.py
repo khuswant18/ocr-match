@@ -131,3 +131,4 @@ class PsrJob(db.Model):
     file_path         = db.Column(db.String(500), nullable=False)   # saved upload
     original_filename = db.Column(db.String(500), nullable=True)    # for filename-based linking
     override_name     = db.Column(db.String(500), nullable=True)    # optional link-name override
+    input_records     = db.Column(db.JSON, nullable=True)           # expected record(s) sent in the request
