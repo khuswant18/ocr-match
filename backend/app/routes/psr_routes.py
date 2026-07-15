@@ -4,6 +4,7 @@ Async job queue, PaddleOCR-only — no LLM. Mirrors the pipeline job API:
 enqueue via POST (202 + job_id), poll via GET, cancel via POST.
 """
 import os
+import json
 import time
 import logging
 from datetime import datetime, timezone
@@ -70,12 +71,38 @@ def psr_extract_and_match():
     override_name = request.form.get('file_name') or None
     triggered_by = request.form.get('triggered_by', 'api')
 
+    # Optional: expected invoice record(s) to reconcile against ("we get a JSON"
+    # from the caller). Accepted three ways, in order:
+    #   1. a JSON array under "records"
+    #   2. a JSON object under "record"
+    #   3. flat sibling form fields (Octa-style): invoice_num, amount,
+    #      invoice_date, ... — most convenient when posting one record with the file.
+    # When none are present, the backend falls back to its data source (CSV).
+    input_records = None
+    raw_records = request.form.get('records') or request.form.get('record')
+    if raw_records:
+        try:
+            input_records = json.loads(raw_records)
+        except (ValueError, TypeError):
+            return jsonify({'error': "The 'record'/'records' field must be valid JSON"}), 400
+    else:
+        _flat_keys = (
+            "invoice_num", "invoice_number", "amount", "invoice_amount",
+            "invoice_date", "filename", "pdf_name", "reference_number",
+            "period_sale_reconcile_id",
+        )
+        flat = {k: request.form.get(k) for k in _flat_keys if request.form.get(k) is not None}
+        # Only treat it as a record if it actually carries something to match on.
+        if any(flat.get(k) for k in ("invoice_num", "invoice_number", "amount", "invoice_amount")):
+            input_records = flat
+
     job = PsrJob(
         status='pending',
         triggered_by=triggered_by,
         file_path=save_path,
         original_filename=original_filename,
         override_name=override_name,
+        input_records=input_records,
     )
     db.session.add(job)
     db.session.commit()
