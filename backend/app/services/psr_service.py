@@ -170,6 +170,33 @@ def load_invoice_records():
     return _load_csv_records(path)
 
 
+def normalize_inline_records(raw_records):
+    """Map record(s) sent in the request to the canonical schema used by matching.
+
+    Accepts a single object or a list, and tolerant key names
+    (filename/pdf_name -> file_name, amount -> invoice_amount, etc.). Returns a
+    list (possibly empty), or None if nothing usable was provided.
+    """
+    if raw_records is None:
+        return None
+    if isinstance(raw_records, dict):
+        raw_records = [raw_records]
+    if not isinstance(raw_records, list):
+        return None
+    out = []
+    for r in raw_records:
+        if not isinstance(r, dict):
+            continue
+        out.append({
+            "file_name": r.get("file_name") or r.get("filename") or r.get("pdf_name"),
+            "invoice_num": r.get("invoice_num") or r.get("invoice_number"),
+            "invoice_amount": r.get("invoice_amount", r.get("amount")),
+            "invoice_date": r.get("invoice_date") or r.get("date"),
+            "reference_number": r.get("reference_number"),
+        })
+    return out
+
+
 def find_invoice_records(records, filename):
     """All records whose `file_name` matches `filename`'s basename (case-insensitive)."""
     if not filename:
@@ -485,7 +512,7 @@ def _run_ocr(file_bytes, job_id=None):
     return avg_conf, text, images, page_results
 
 
-def run_psr_extract_and_match(file_bytes, filename, override_name=None, job_id=None):
+def run_psr_extract_and_match(file_bytes, filename, override_name=None, job_id=None, records=None):
     """
     Full PSR pipeline: OCR the document, read its printed invoice number and
     total, link it to an invoice record, and compare the total against that
@@ -506,13 +533,24 @@ def run_psr_extract_and_match(file_bytes, filename, override_name=None, job_id=N
 
     check_cancelled(job_id)
     link_name = override_name or filename
-    records = load_invoice_records()
+    inline = normalize_inline_records(records)
 
-    matched_records, matched_num = find_by_invoice_number(records, text)
-    match_method = "invoice_num" if matched_records else None
-    if not matched_records:
-        matched_records = find_invoice_records(records, link_name)
-        match_method = "file_name" if matched_records else None
+    if inline and len(inline) == 1:
+        # A single expected record paired with this document — reconcile it
+        # directly, no invoice_num/filename linking needed (the caller already
+        # told us which record this document is).
+        matched_records = inline
+        matched_num = None
+        match_method = "provided"
+    else:
+        # Multiple inline records, or none (fall back to the CSV data source):
+        # link the document to the right record by invoice number then filename.
+        record_source = inline if inline else load_invoice_records()
+        matched_records, matched_num = find_by_invoice_number(record_source, text)
+        match_method = "invoice_num" if matched_records else None
+        if not matched_records:
+            matched_records = find_invoice_records(record_source, link_name)
+            match_method = "file_name" if matched_records else None
 
     linked = []
     matched = False
@@ -542,10 +580,7 @@ def run_psr_extract_and_match(file_bytes, filename, override_name=None, job_id=N
     invoice_num_match = False
     if matched_records:
         rec_norm = _norm_invnum(matched_records[0].get("invoice_num"))
-        invoice_num_match = (
-            match_method == "invoice_num"
-            or (rec_norm is not None and rec_norm in set(extracted_numbers))
-        )
+        invoice_num_match = rec_norm is not None and rec_norm in set(extracted_numbers)
 
     if not matched_records:
         status = "no_record"
