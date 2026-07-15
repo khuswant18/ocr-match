@@ -1,0 +1,105 @@
+{
+  "info": {
+    "name": "PSR Match API",
+    "description": "PSR (Payment Summary Report) extraction + amount reconciliation. Async job flow: enqueue with POST (202 + job_id), then poll the GET job route until status is completed/failed/cancelled. PaddleOCR only — no LLM.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:4333" },
+    { "key": "job_id", "value": "1" }
+  ],
+  "item": [
+    {
+      "name": "1. Enqueue PSR job (extract & match)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/psr/extract-and-match",
+          "host": ["{{base_url}}"],
+          "path": ["api", "psr", "extract-and-match"]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "",
+              "description": "The PSR image or PDF to reconcile (accepts key 'file', 'image', or 'pdf')."
+            },
+            {
+              "key": "record",
+              "type": "text",
+              "value": "{\"filename\":\"4017234.pdf\",\"invoice_num\":\"78715\",\"invoice_amount\":\"7825.06\",\"invoice_date\":\"2025-06-11\"}",
+              "disabled": true,
+              "description": "Optional: the expected invoice record to reconcile against (becomes raw_data). JSON object. Tolerant keys: filename/file_name/pdf_name, amount/invoice_amount. Use 'records' for a JSON array. When omitted, the backend falls back to its CSV data source."
+            },
+            {
+              "key": "file_name",
+              "type": "text",
+              "value": "",
+              "disabled": true,
+              "description": "Optional: original CSV file_name to link a renamed upload by filename."
+            },
+            {
+              "key": "triggered_by",
+              "type": "text",
+              "value": "postman",
+              "disabled": true,
+              "description": "Optional label recorded on the job."
+            }
+          ]
+        },
+        "description": "Uploads a document and enqueues a job. Returns 202 with { job_id, status: 'pending' }. Copy job_id into the collection variable to poll."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Get PSR job status",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/psr/job/{{job_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["api", "psr", "job", "{{job_id}}"]
+        },
+        "description": "Poll a job. While pending/running returns job envelope only. When completed returns ocr_data / raw_data / match_summary. When failed/cancelled returns an 'error'."
+      },
+      "response": []
+    },
+    {
+      "name": "3. List PSR jobs",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/psr/jobs?limit=50",
+          "host": ["{{base_url}}"],
+          "path": ["api", "psr", "jobs"],
+          "query": [
+            { "key": "status", "value": "completed", "disabled": true, "description": "Filter: pending|running|completed|failed|cancelled" },
+            { "key": "limit", "value": "50" }
+          ]
+        },
+        "description": "Recent PSR jobs, newest first."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Cancel PSR job",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/psr/job/{{job_id}}/cancel",
+          "host": ["{{base_url}}"],
+          "path": ["api", "psr", "job", "{{job_id}}", "cancel"]
+        },
+        "description": "Cancel a pending or running job. Pending jobs are cancelled immediately; running jobs stop at the next checkpoint."
+      },
+      "response": []
+    }
+  ]
+}
