@@ -70,6 +70,7 @@ def _process_one_job(app):
                 job.original_filename or job.file_path,
                 override_name=job.override_name,
                 job_id=cancel_key,
+                records=job.input_records,
             )
             job.status = 'completed'
             job.result_json = result
@@ -100,7 +101,12 @@ def _process_one_job(app):
 
 def _worker_loop(app):
     print("[PSR-WORKER] PSR worker started.")
-    _reap_orphaned_jobs(app)
+    try:
+        _reap_orphaned_jobs(app)
+    except Exception as e:
+        # A startup hiccup (e.g. a schema change mid-deploy) must not kill the
+        # worker thread — the poll loop below will recover.
+        print(f"[PSR-WORKER] reap on startup failed (continuing): {e}")
     while True:
         try:
             had_work = _process_one_job(app)
