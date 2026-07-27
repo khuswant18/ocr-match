@@ -331,6 +331,10 @@ def _parse_flexible_amount(text):
 
     Treats a trailing 1–2 digit group after any separator as centavos, everything
     else as the integer part. Handles ",", ".", and OCR's "-"/space mis-reads.
+
+    Also detects a dropped decimal point: when the last group after a comma has
+    exactly 4 digits (invalid thousands grouping), the last digit is treated as
+    a single decimal digit. E.g. "48,5782" → 48578.2 (not 485782).
     """
     s = re.sub(r"[^0-9.,\- ]", "", text)
     groups = [g for g in re.split(r"[.,\-\s]+", s) if g]
@@ -340,7 +344,14 @@ def _parse_flexible_amount(text):
     if len(groups) == 1:
         return _safe_float(groups[0]), False
     if len(groups[-1]) in (1, 2):
+        # Trailing 1–2 digits are centavos: "74118-90" → 74118.90
         val = _safe_float("".join(groups[:-1]) + "." + groups[-1])
+    elif len(groups[-1]) == 4 and all(len(g) <= 3 for g in groups[:-1]):
+        # Dropped decimal point: "48,5782" → "48,578.2" (4-digit tail is
+        # invalid thousands grouping; split as 3 integer + 1 decimal digit).
+        integer_part = "".join(groups[:-1]) + groups[-1][:3]
+        decimal_part = groups[-1][3:]
+        val = _safe_float(integer_part + "." + decimal_part)
     else:
         val = _safe_float("".join(groups))
     return val, has_sep
@@ -382,7 +393,7 @@ def _band_amount(boxes, label):
 _ROI_MIN_VOTES = 4  # of ~16 samples per document
 
 
-def _reocr_total_cell(image, label, job_id=None):
+def _reocr_total_cell(image, label, job_id=None, candidates=None):
     """Second pass over the cell right of the total label: consistency voting.
 
     The full-page recognizer drops digits on slanted handwritten totals
@@ -395,11 +406,16 @@ def _reocr_total_cell(image, label, job_id=None):
     """
     H, W = image.shape[:2]
     y, h, xr = label["y"], label["h"], label["x_right"]
-    y0, y1 = max(0, int(y - 1.7 * h)), min(H, int(y + 1.2 * h))
+    # Wider vertical band to capture handwriting that extends above/below the label.
+    y0, y1 = max(0, int(y - 2.0 * h)), min(H, int(y + 1.5 * h))
+
+    # Build a set of candidate values for cross-validation of bare integers.
+    cand_set = set(round(c, 2) for c in (candidates or []))
 
     votes = Counter()
     conf_of = {}
-    for dx in (0.025, 0.02, 0.015, 0.01):
+    # More leftward offsets to catch amounts that start close to/overlap the label.
+    for dx in (0.04, 0.035, 0.03, 0.025, 0.02, 0.015, 0.01):
         check_cancelled(job_id)
         x0 = max(0, int(xr - dx * W))
         cell = image[y0:y1, x0:W]
@@ -420,10 +436,15 @@ def _reocr_total_cell(image, label, job_id=None):
                     if _BOILERPLATE_RE.search(txt):
                         continue
                     val, has_sep = _parse_flexible_amount(txt)
-                    # Require a separator: only then are the centavos anchored, so
-                    # "74118-90" -> 74118.90 (not an ambiguous bare "7411890").
-                    if val is None or not has_sep or not (0 < val < _MAX_PLAUSIBLE_AMOUNT):
+                    if val is None or not (0 < val < _MAX_PLAUSIBLE_AMOUNT):
                         continue
+                    # Accept with separator (centavos anchored), OR accept bare
+                    # integers if they cross-validate against a candidate number
+                    # the full-page pass already found elsewhere in the document.
+                    if not has_sep:
+                        rounded = round(val, 2)
+                        if rounded not in cand_set:
+                            continue
                     key = round(val, 2)
                     votes[key] += 1
                     conf_of[key] = max(conf_of.get(key, 0.0), conf)
@@ -438,11 +459,63 @@ def _reocr_total_cell(image, label, job_id=None):
     return None
 
 
+def _fallback_table_total(boxes, footer_label=None):
+    """Search the table body for a total amount when the footer extraction fails.
+
+    Two strategies, tried in order:
+      1. Find a row labelled "total" in the table body and read its amount.
+      2. If no "total" label is detected (common with handwriting), find the
+         nearest non-boilerplate amount in the right column just ABOVE the
+         footer "TOTAL AMOUNT DUE" label — on sales invoices the total is
+         always the last amount before the footer.
+
+    Returns (value, raw_token, confidence) or (None, None, None).
+    """
+    def alnum(s):
+        return "".join(c for c in s.lower() if c.isalnum())
+
+    # S1: Find boxes whose text is just "total" (table-body label).
+    total_labels = [b for b in boxes if alnum(b["text"]) == "total"]
+    for label in sorted(total_labels, key=lambda b: b["y"]):
+        band = [
+            b for b in boxes
+            if abs(b["y"] - label["y"]) <= max(label["h"], b["h"]) * 0.7
+            and b["x_left"] > label["x_right"] - label["h"]  # to its right
+            and not _BOILERPLATE_RE.search(b["text"])
+        ]
+        band.sort(key=lambda b: b["x_left"])
+        for b in band:
+            val, has_sep = _parse_flexible_amount(b["text"])
+            if val is not None and has_sep and 0 < val < _MAX_PLAUSIBLE_AMOUNT:
+                logger.info("[fallback] Found total via table-body 'total' label: %s → %s", b["text"], val)
+                return val, b["text"], round(b["conf"], 2)
+
+    # S2: Nearest amount in the right column above the footer label.
+    if footer_label is not None and boxes:
+        x_max = max(b["x_right"] for b in boxes)
+        # non-boilerplate right ~60% of the above footer.
+        above = [
+            b for b in boxes
+            if b["y"] < footer_label["y"]
+            and b["x_left"] > x_max * 0.4
+            and not _BOILERPLATE_RE.search(b["text"])
+        ]
+        above.sort(key=lambda b: b["y"], reverse=True)  # closest first
+        for b in above:
+            val, has_sep = _parse_flexible_amount(b["text"])
+            if val is not None and has_sep and 0 < val < _MAX_PLAUSIBLE_AMOUNT:
+                logger.info("[fallback] Found total via nearest-above: %s → %s", b["text"], val)
+                return val, b["text"], round(b["conf"], 2)
+
+    return None, None, None
+
+
 def extract_total(page_results, images, job_id=None):
     """
     Read the document total: locate the "TOTAL AMOUNT DUE" label, prefer a clean
     full-page read, and fall back to an upscaled ROI re-OCR of the cell to its
     right (which recovers digits the full-page pass drops on slanted handwriting).
+    Final fallback: search the table body for a "total" row whose amount was read.
 
     Returns (total_or_None, raw_token, confidence). `total` is None when the cell
     is blank or the number stays garbled/low-confidence — we deliberately do not
@@ -461,11 +534,22 @@ def extract_total(page_results, images, job_id=None):
         if band_val is not None:
             return band_val, band_raw, band_conf
 
+        # Collect candidates for cross-validation in re-OCR.
+        candidates = collect_candidates(
+            "\n".join(b["text"] for b in boxes)
+        )
+
         # 2) Full page couldn't read it cleanly — retry the cell with the voting
         #    sweep, which recovers digits the full-page pass drops.
-        roi = _reocr_total_cell(image, label, job_id=job_id)
+        roi = _reocr_total_cell(image, label, job_id=job_id, candidates=candidates)
         if roi is not None:
             return roi  # (value, raw_token, confidence)
+
+        # 3) Last resort: check the table body for a "total" row whose amount
+        #    the full-page OCR did manage to read.
+        fb_val, fb_raw, fb_conf = _fallback_table_total(boxes, footer_label=label)
+        if fb_val is not None:
+            return fb_val, fb_raw, fb_conf
 
         return None, band_raw, band_conf
     return None, None, None

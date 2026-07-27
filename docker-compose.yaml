@@ -35,8 +35,11 @@ services:
       - PSR_INVOICE_SOURCE=/psr/cc-invoice-08-07-2026-v1.csv
     volumes:
         - ./backend:/app
+        - ./test_samples:/app/test_samples
         - ./psr:/psr:ro
         - paddle_models:/root/.paddleocr
+        - fastembed_cache:/root/.cache/fastembed
+        - ./backend/models:/app/models:ro
     depends_on:
       mysql:
         condition: service_healthy
@@ -66,3 +69,4 @@ volumes:
   mysql_data:
   qdrant_data:
   paddle_models:
+  fastembed_cache:

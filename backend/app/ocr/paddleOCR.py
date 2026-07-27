@@ -8,7 +8,10 @@ from flask import Blueprint, jsonify, request
 # pyrefly: ignore [missing-import]
 from werkzeug.utils import secure_filename
 from paddleocr import PaddleOCR
+from PIL import Image as PILImage
+import numpy as np
 from app.parsers.llm_parser import parse_with_gemini, verify_and_fix
+from app.parsers.layoutlm_parser import extract_fields_multi_page as layoutlm_extract
 from app.utils.operations import add_invoice_to_db, check_if_invoice, process_paddleocr_text
 from app.utils.utils import load_images_from_bytes, _is_pdf
 from app.models import db, Invoice
@@ -44,6 +47,117 @@ print("[STARTUP] PaddleOCR models loaded successfully.", flush=True)
 # endpoint, so concurrent requests would corrupt the shared predictor
 # ("Tensor holds no memory"). Serialise all predictor access with this lock.
 _ocr_lock = threading.Lock()
+
+
+def _extract_words_and_boxes(all_results, images):
+    """
+    Extract per-page words and normalised bounding boxes from raw PaddleOCR
+    results — ready for LayoutLMv3 input.
+
+    Returns:
+        page_words:  list of list[str]         — one list of words per page
+        page_boxes:  list of list[[x0,y0,x1,y1]] — normalised to 0-1000
+        page_images: list of PIL.Image.Image   — RGB images per page
+    """
+    page_words = []
+    page_boxes = []
+    page_images = []
+
+    for page_idx, page_result in enumerate(all_results):
+        if not page_result:
+            continue
+
+        # Get image dimensions from the numpy array
+        if page_idx < len(images):
+            img_np = images[page_idx]
+            h, w = img_np.shape[:2]
+            pil_img = PILImage.fromarray(img_np).convert("RGB")
+        else:
+            continue
+
+        words = []
+        boxes = []
+        for line in page_result:
+            bbox = line[0]   # [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+            text = line[1][0]
+
+            if not text or not text.strip():
+                continue
+
+            # Convert polygon to axis-aligned box
+            xs = [p[0] for p in bbox]
+            ys = [p[1] for p in bbox]
+            x0, x1 = min(xs), max(xs)
+            y0, y1 = min(ys), max(ys)
+
+            # Normalise to 0-1000 (LayoutLMv3 convention)
+            norm_box = [
+                max(0, min(1000, int(1000 * float(x0) / w))),
+                max(0, min(1000, int(1000 * float(y0) / h))),
+                max(0, min(1000, int(1000 * float(x1) / w))),
+                max(0, min(1000, int(1000 * float(y1) / h))),
+            ]
+            words.append(text.strip())
+            boxes.append(norm_box)
+
+        if words:
+            page_words.append(words)
+            page_boxes.append(boxes)
+            page_images.append(pil_img)
+
+    return page_words, page_boxes, page_images
+
+
+def _merge_layoutlm_and_llm(layoutlm_data, llm_data):
+    """
+    Merge LayoutLMv3 header fields with LLM parsed data.
+    LayoutLMv3 wins for header/footer fields it confidently extracted.
+    LLM wins for line items and any fields LayoutLMv3 missed.
+    """
+    if not layoutlm_data:
+        return llm_data
+    if not llm_data:
+        return layoutlm_data
+
+    merged = dict(llm_data)  # start with LLM output
+
+    # Header fields: LayoutLMv3 overrides LLM if it found a value
+    for key in ("invoice_number", "po_number", "invoice_date", "so_number", "terms"):
+        lm_val = layoutlm_data.get(key, "").strip() if layoutlm_data.get(key) else ""
+        if lm_val:
+            merged[key] = lm_val
+
+    # Nested fields: LayoutLMv3 fills in gaps the LLM missed
+    for key in ("supplier", "buyer"):
+        lm_sub = layoutlm_data.get(key, {})
+        llm_sub = merged.get(key, {})
+        if not isinstance(llm_sub, dict):
+            llm_sub = {}
+        for sub_key in ("name", "address", "tin", "contact", "vendor_number"):
+            lm_val = lm_sub.get(sub_key, "").strip() if lm_sub.get(sub_key) else ""
+            llm_val = str(llm_sub.get(sub_key, "")).strip() if llm_sub.get(sub_key) else ""
+            if lm_val and not llm_val:
+                llm_sub[sub_key] = lm_val
+        merged[key] = llm_sub
+
+    # Financials: LayoutLMv3 fills in gaps
+    lm_fin = layoutlm_data.get("financials", {})
+    llm_fin = merged.get("financials", {})
+    if not isinstance(llm_fin, dict):
+        llm_fin = {}
+    for sub_key in ("subtotal", "total_amount", "discount"):
+        lm_val = lm_fin.get(sub_key, "").strip() if lm_fin.get(sub_key) else ""
+        llm_val = str(llm_fin.get(sub_key, "")).strip() if llm_fin.get(sub_key) else ""
+        if lm_val and not llm_val:
+            llm_fin[sub_key] = lm_val
+    merged["financials"] = llm_fin
+
+    # Keep line items from LLM (it's better at table parsing)
+    # Remove internal LayoutLMv3 keys from final output
+    merged.pop("_layoutlm_used", None)
+    merged.pop("_item_words", None)
+
+    return merged
 
 
 def _run_document_ocr(images, job_id=None):
@@ -88,8 +202,15 @@ class ExtractionError(Exception):
 
 def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existing_path=None):
     """
-    Run the full OCR + LLM extraction pipeline on raw document bytes and,
-    if it is an invoice, persist it. Returns (invoice_id, parsed_data, text, meta).
+    Run the full OCR + LayoutLMv3 + LLM extraction pipeline on raw document
+    bytes and, if it is an invoice, persist it.
+    Returns (invoice_id, parsed_data, text, meta).
+
+    Pipeline:
+    1. PaddleOCR → words, bounding boxes, spatial text
+    2. LayoutLMv3 → header/footer field extraction (local, fast)
+    3. LLM (Groq/OpenRouter) → line-item parsing
+    4. Merge LayoutLMv3 + LLM results → verify_and_fix()
 
     This is the single source of truth for extraction. The /paddleOCR HTTP
     route and the background match worker both call it directly (in-process),
@@ -99,7 +220,7 @@ def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existin
     pipeline failure the caller should surface (bad input, low confidence,
     invalid LLM output, LLM unavailable).
     """
-    ocr_method = 'PaddleOCR'
+    ocr_method = 'PaddleOCR+LayoutLMv3'
 
     images = load_images_from_bytes(file_bytes)
     if not images:
@@ -143,6 +264,28 @@ def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existin
 
     check_cancelled(job_id)
 
+    # ── LayoutLMv3: extract header/footer fields locally ──────────────
+    layoutlm_data = {}
+    try:
+        page_words, page_boxes, page_images = _extract_words_and_boxes(
+            all_results, images,
+        )
+        if page_words:
+            start_layoutlm = time.time()
+            layoutlm_data = layoutlm_extract(page_images, page_words, page_boxes)
+            layoutlm_time = time.time() - start_layoutlm
+            print(f"\n[LayoutLMv3] Extracted fields in {layoutlm_time:.2f}s:")
+            # Print only the header fields, not internal keys
+            display = {k: v for k, v in layoutlm_data.items()
+                       if not k.startswith("_")}
+            print(json.dumps(display, indent=2))
+    except Exception as e:
+        print(f"[LayoutLMv3] Warning: inference failed, falling back to LLM only: {e}")
+        layoutlm_data = {}
+
+    check_cancelled(job_id)
+
+    # ── LLM: extract full structured data (esp. line items) ──────────
     start_time_parsing = time.time()
     parsed_data = parse_with_gemini(text, job_id=job_id)
     parsing_time = time.time() - start_time_parsing
@@ -159,21 +302,24 @@ def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existin
                 payload={'raw_output': parsed_data},
             )
 
-    # OCR succeeded but the LLM returned nothing usable — treat as an explicit
-    # failure so the job gets a clear message instead of a misleading
-    # "No invoice items extracted" downstream.
-    if not parsed_data:
-        raise ExtractionError('LLM parsing failed or unavailable. Please retry.', status_code=502)
+    # If the LLM returned nothing but LayoutLMv3 succeeded, use LayoutLMv3
+    # data as-is (won't have line items, but header fields are still useful)
+    if not parsed_data and layoutlm_data:
+        parsed_data = layoutlm_data
+    elif not parsed_data:
+        raise ExtractionError('Both LayoutLMv3 and LLM parsing failed. Please retry.', status_code=502)
 
     check_cancelled(job_id)
 
+    # ── Merge LayoutLMv3 + LLM results ────────────────────────────────
     if isinstance(parsed_data, dict):
+        parsed_data = _merge_layoutlm_and_llm(layoutlm_data, parsed_data)
         if po_number:
             parsed_data["po_number"] = po_number
         parsed_data = verify_and_fix(parsed_data, text)
 
     print("\n" + "=" * 60)
-    print("[LLM] FINAL PARSED DATA (after verification):")
+    print("[MERGED] FINAL PARSED DATA (LayoutLMv3 + LLM + verification):")
     print("=" * 60)
     print(json.dumps(parsed_data, indent=4))
     print("=" * 60 + "\n")

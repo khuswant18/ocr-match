@@ -19,3 +19,7 @@ uploads/
 
 # ── Test / debug artefacts ────────────────────────────────────────────────────
 *.log
+
+# ── ML model weights (too large for git, copy separately) ────────────────────
+models/layoutlmv3-invoices/model.safetensors
+models/layoutlmv3-invoices/training_args.bin
