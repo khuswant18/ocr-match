@@ -1,14 +1,9 @@
 from datetime import datetime
 from app.models import db, Invoice, InvoiceItem
 
-
 def process_paddleocr_text(result):
     """
-    Reconstruct text from PaddleOCR preserving spatial (table) layout.
-
-    Groups text blocks into lines by comparing against the line's MEAN
-    y_center (not the last block), preventing chain-drift where adjacent
-    invoice rows get merged.
+    Process PaddleOCR result to extract text and calculate statistics.
     """
     all_blocks = []
     total_score = 0
@@ -60,30 +55,29 @@ def process_paddleocr_text(result):
             current_line = [block]
             current_line_y_sum = block['y_center']
     lines.append(current_line)
-
+    print("Lines===================",lines) 
     text_lines = []
     for line_blocks in lines:
         line_blocks.sort(key=lambda b: b['x_left'])
+        print("line_blocks===================",line_blocks) 
         line_text = "\t".join(b['text'] for b in line_blocks)
+        print("line_text===================",line_text) 
         text_lines.append(line_text)
-
+    print("text_lines===================",text_lines)
     text = "\n".join(text_lines)
-    print("average_confidence, text",average_confidence, text) 
+    print("average_confidence, text=======================",average_confidence, text) 
     return average_confidence, text
-
 
 def _safe_float(value, default=0.0):
     if value is None or value == "":
         return default
     try:
         clean_val = str(value).replace(',', '').replace('$', '').replace('₱', '').replace('P', '').strip()
-        # Handle parenthetical negatives like "(100.00)"
         if clean_val.startswith('(') and clean_val.endswith(')'):
             clean_val = '-' + clean_val[1:-1]
         return float(clean_val)
     except (ValueError, TypeError):
         return default
-
 
 def add_invoice_to_db(parsed_data, text, pdf_file, img_file, average_confidence, recognition_time, parsing_time, ocr_method):
 

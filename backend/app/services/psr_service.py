@@ -22,7 +22,7 @@ from app.utils.utils import _is_pdf, pdf_to_images
 from app.utils.operations import process_paddleocr_text, _safe_float
 # Reuse the shared PaddleOCR singleton + its lock + the route's error type.
 # Importing these does NOT build a second (heavy) predictor.
-from app.ocr.paddleOCR import ocr, _ocr_lock, ExtractionError
+from app.ocr.engine import ocr, _ocr_lock, ExtractionError
 from app.cancel_registry import check_cancelled
 
 logger = logging.getLogger(__name__)

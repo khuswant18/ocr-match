@@ -1,14 +1,13 @@
-import sys
 import os
 import json
 import time
 import difflib
+import uuid
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-from mysql_db import get_connection
+from sqlalchemy import text
+from app.extensions import db
 from app.services.vector_service import index_po_items, find_ranked_candidates, delete_collection, RELAXED_THRESHOLD
 from app.cancel_registry import check_cancelled
-import uuid
 
 
 def _to_num(val, default=0.0):
@@ -22,21 +21,21 @@ def _to_num(val, default=0.0):
     except (TypeError, ValueError):
         return default
 
-def _fetch_po_items(cursor, po_number):
-    cursor.execute(
-        """
-        SELECT product_code,
-               po_total_qty AS qty,
-               purchase_price AS price,
-               buying_conversion_factor,
-               product_full_desc
-        FROM po_lines
-        WHERE po_number = %s
-        """,
-        (str(po_number),),
-    ) 
+def _fetch_po_items(po_number):
+    result = db.session.execute(
+        text("""
+            SELECT product_code,
+                   po_total_qty AS qty,
+                   purchase_price AS price,
+                   buying_conversion_factor,
+                   product_full_desc
+            FROM po_lines
+            WHERE po_number = :po_number
+        """),
+        {"po_number": str(po_number)},
+    )
     items = {}
-    for r in cursor.fetchall():
+    for r in result:
         items[str(r[0]).strip()] = {
             "qty": float(r[1] or 0),
             "price": float(r[2] or 0),
@@ -45,70 +44,68 @@ def _fetch_po_items(cursor, po_number):
         }
     return items
 
-def _fetch_grn_items(cursor, po_number):
-    # pol_grn.po_trans_no is numeric — try int first, fall back to string match
+def _fetch_grn_items(po_number):
     po_str = str(po_number).strip()
     try:
         grn_po_number = int(po_str)
     except ValueError:
         grn_po_number = None
 
-    # Try both numeric and string match to be safe
     if grn_po_number is not None:
-        cursor.execute(
-            """
-            SELECT product_code,
-                   SUM(vo_tot_qty) AS qty,
-                   MAX(vo_trans_no) AS grn_number
-            FROM pol_grn
-            WHERE po_trans_no = %s
-            GROUP BY product_code
-            """,
-            (grn_po_number,),
+        result = db.session.execute(
+            text("""
+                SELECT product_code,
+                       SUM(vo_tot_qty) AS qty,
+                       MAX(vo_trans_no) AS grn_number
+                FROM pol_grn
+                WHERE po_trans_no = :po_number
+                GROUP BY product_code
+            """),
+            {"po_number": grn_po_number},
         )
     else:
-        cursor.execute(
-            """
-            SELECT product_code,
-                   SUM(vo_tot_qty) AS qty,
-                   MAX(vo_trans_no) AS grn_number
-            FROM pol_grn
-            WHERE CAST(po_trans_no AS CHAR) = %s
-            GROUP BY product_code
-            """,
-            (po_str,),
+        result = db.session.execute(
+            text("""
+                SELECT product_code,
+                       SUM(vo_tot_qty) AS qty,
+                       MAX(vo_trans_no) AS grn_number
+                FROM pol_grn
+                WHERE CAST(po_trans_no AS CHAR) = :po_number
+                GROUP BY product_code
+            """),
+            {"po_number": po_str},
         )
 
     items = {}
-    for r in cursor.fetchall():
+    for r in result:
         items[str(r[0]).strip()] = {
             "qty": float(r[1] or 0),
             "grn_number": str(r[2] or "")
         }
     return items
 
-def _fetch_invoice_items(cursor, po_number, po_items):
+def _fetch_invoice_items(po_number, po_items):
     """
     Fetch ALL invoice items across ALL invoices for a PO (multi-invoice support).
     A PO can have several partial invoices — quantities are accumulated per product_code.
     Each product_code entry also carries an `invoice_lines` list so the caller can
     save one matching_results row per invoice line for a full audit trail.
     """
-    cursor.execute(
-        """
-        SELECT ii.product_code,
-               ii.normalized_qty,
-               ii.unit_price,
-               ii.id          AS invoice_item_id,
-               i.id           AS invoice_id,
-               ii.product_name,
-               i.invoice_number
-        FROM invoice_items ii
-        JOIN invoices i ON i.id = ii.invoice_id
-        WHERE i.po_number = %s
-        ORDER BY i.id ASC, ii.id ASC
-        """,
-        (str(po_number),),
+    result = db.session.execute(
+        text("""
+            SELECT ii.product_code,
+                   ii.normalized_qty,
+                   ii.unit_price,
+                   ii.id          AS invoice_item_id,
+                   i.id           AS invoice_id,
+                   ii.product_name,
+                   i.invoice_number
+            FROM invoice_items ii
+            JOIN invoices i ON i.id = ii.invoice_id
+            WHERE i.po_number = :po_number
+            ORDER BY i.id ASC, ii.id ASC
+        """),
+        {"po_number": str(po_number)},
     )
 
     # Build a lookup for product code normalisation:
@@ -125,7 +122,7 @@ def _fetch_invoice_items(cursor, po_number, po_items):
 
     items = {}
     unknown_count = 0
-    for r in cursor.fetchall():
+    for r in result:
         raw_code = str(r[0] or "").strip()
 
         # Try to resolve the invoice's product_code to a known PO code
@@ -431,58 +428,80 @@ def _build_ui_results(po_items, grn_items, inv_items, po_number):
     return ui_results
 
 
-def _persist_matching_results(cursor, po_number, ui_results):
+def _persist_matching_results(po_number, ui_results):
     """Persist UI rows to matching_results — one row per invoice line."""
     # Delete ALL previous results for this PO before re-inserting.
-    cursor.execute("DELETE FROM matching_results WHERE po_number = %s", (str(po_number),))
+    db.session.execute(
+        text("DELETE FROM matching_results WHERE po_number = :po_number"),
+        {"po_number": str(po_number)}
+    )
 
-    insert_sql = """
+    insert_sql = text("""
         INSERT INTO matching_results (
             invoice_id, invoice_item_id, po_number, grn_number, product_code,
             po_qty, grn_qty, invoice_qty, qty_variance, is_qty_match,
             po_price, invoice_price, price_variance, is_price_match,
             status, issue_summary
         ) VALUES (
-            %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s,
-            %s, %s, %s, %s,
-            %s, %s
+            :invoice_id, :invoice_item_id, :po_number, :grn_number, :product_code,
+            :po_qty, :grn_qty, :invoice_qty, :qty_variance, :is_qty_match,
+            :po_price, :invoice_price, :price_variance, :is_price_match,
+            :status, :issue_summary
         )
-    """
+    """)
 
     for row in ui_results:
         invoice_lines = row["invoice_lines"]
         if invoice_lines:
             for line in invoice_lines:
-                cursor.execute(insert_sql, (
-                    line["invoice_id"], line["invoice_item_id"], po_number,
-                    row["grn_number"], row["product_code"],
-                    row["po_qty"], row["grn_qty"], line["normalized_qty"],
-                    row["qty_variance"], row["is_qty_match"],
-                    row["po_price"], line["price"], row["price_variance"], row["is_price_match"],
-                    row["status"], row["issue_summary"],
-                ))
+                db.session.execute(insert_sql, {
+                    "invoice_id": line["invoice_id"],
+                    "invoice_item_id": line["invoice_item_id"],
+                    "po_number": po_number,
+                    "grn_number": row["grn_number"],
+                    "product_code": row["product_code"],
+                    "po_qty": row["po_qty"],
+                    "grn_qty": row["grn_qty"],
+                    "invoice_qty": line["normalized_qty"],
+                    "qty_variance": row["qty_variance"],
+                    "is_qty_match": row["is_qty_match"],
+                    "po_price": row["po_price"],
+                    "invoice_price": line["price"],
+                    "price_variance": row["price_variance"],
+                    "is_price_match": row["is_price_match"],
+                    "status": row["status"],
+                    "issue_summary": row["issue_summary"],
+                })
         else:
             # not_billed — no invoice lines, save one row with nulls
-            cursor.execute(insert_sql, (
-                None, None, po_number, row["grn_number"], row["product_code"],
-                row["po_qty"], row["grn_qty"], 0, row["qty_variance"], row["is_qty_match"],
-                row["po_price"], 0, row["price_variance"], row["is_price_match"],
-                row["status"], row["issue_summary"],
-            ))
+            db.session.execute(insert_sql, {
+                "invoice_id": None,
+                "invoice_item_id": None,
+                "po_number": po_number,
+                "grn_number": row["grn_number"],
+                "product_code": row["product_code"],
+                "po_qty": row["po_qty"],
+                "grn_qty": row["grn_qty"],
+                "invoice_qty": 0,
+                "qty_variance": row["qty_variance"],
+                "is_qty_match": row["is_qty_match"],
+                "po_price": row["po_price"],
+                "invoice_price": 0,
+                "price_variance": row["price_variance"],
+                "is_price_match": row["is_price_match"],
+                "status": row["status"],
+                "issue_summary": row["issue_summary"],
+            })
 
 def run_three_way_match(po_number):
     """
     Executes the 3-Way Match against the DB (legacy path used by /api/pipeline/match),
     saves exact variances to the database, and returns a clean flat list for the UI.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-
     try:
-        po_items = _fetch_po_items(cursor, po_number)
-        grn_items = _fetch_grn_items(cursor, po_number)
-        inv_items = _fetch_invoice_items(cursor, po_number, po_items)
+        po_items = _fetch_po_items(po_number)
+        grn_items = _fetch_grn_items(po_number)
+        inv_items = _fetch_invoice_items(po_number, po_items)
 
         if not po_items:
             return {"error": "No PO lines found for this PO number."}
@@ -501,9 +520,9 @@ def run_three_way_match(po_number):
 
         _auto_match(po_items, inv_items, vector_enabled, collection_name=vector_collection)
         ui_results = _build_ui_results(po_items, grn_items, inv_items, po_number)
-        _persist_matching_results(cursor, po_number, ui_results)
+        _persist_matching_results(po_number, ui_results)
 
-        conn.commit()
+        db.session.commit()
         raw_po_list = [{"product_code": code, **data} for code, data in po_items.items()]
         raw_inv_list = [{"product_code": code, **data} for code, data in inv_items.items()]
         raw_grn_list = [{"product_code": code, **data} for code, data in grn_items.items()]
@@ -517,12 +536,8 @@ def run_three_way_match(po_number):
         return {"status": "success", "raw_po_items": raw_po_list, "raw_inv_items": raw_inv_list, "raw_grn_items": raw_grn_list, "matches": ui_results}
 
     except Exception as e:
-        conn.rollback()
+        db.session.rollback()
         return {"error": str(e)}
-
-    finally:
-        cursor.close()
-        conn.close()
 
 def run_match_from_payload(po_number, po_lines, pol_grn, parsed_data, invoice_id=None, job_id=None):
     """
@@ -606,11 +621,8 @@ def run_match_from_payload(po_number, po_lines, pol_grn, parsed_data, invoice_id
 
 def get_po_list():
     """Return list of available PO numbers from po_headers UNION invoices."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            """
+    result = db.session.execute(
+        text("""
             SELECT po_number, po_date, store_code, supplier_code FROM po_headers
             UNION
             SELECT DISTINCT pl.po_number, NULL, pl.store_code, NULL
@@ -623,33 +635,25 @@ def get_po_list():
               AND NOT EXISTS (SELECT 1 FROM po_headers ph2 WHERE ph2.po_number = i.po_number)
               AND NOT EXISTS (SELECT 1 FROM po_lines pl2 WHERE pl2.po_number = i.po_number)
             ORDER BY po_date DESC
-            """
-        )
-        rows = cursor.fetchall()
-        return [
-            {
-                "po_number": str(r[0]),
-                "po_date": str(r[1]) if r[1] else None,
-                "store_code": str(r[2]) if r[2] else None,
-                "supplier_code": str(r[3]) if r[3] else None,
-            }
-            for r in rows
-        ]
-    finally:
-        cursor.close()
-        conn.close()
+        """)
+    )
+    return [
+        {
+            "po_number": str(r[0]),
+            "po_date": str(r[1]) if r[1] else None,
+            "store_code": str(r[2]) if r[2] else None,
+            "supplier_code": str(r[3]) if r[3] else None,
+        }
+        for r in result
+    ]
 
 
 def get_po_items(po_number):
     """
     Returns the specific line items ordered for a given PO Number.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(
-            """
+    result = db.session.execute(
+        text("""
             SELECT po_number, 
                    product_code, 
                    product_full_desc, 
@@ -657,46 +661,37 @@ def get_po_items(po_number):
                    po_total_qty,
                    purchase_price
             FROM po_lines
-            WHERE po_number = %s
-            """,
-            (str(po_number),)
-        )
-        rows = cursor.fetchall()
-        return [
-            {
-                "po_number": str(r[0]),
-                "product_code": str(r[1]),
-                "product_full_desc": str(r[2]),
-                "store_code": str(r[3]),
-                "po_total_qty": float(r[4] or 0),
-                "purchase_price": float(r[5] or 0)
-            }
-            for r in rows
-        ]
-    finally:
-        cursor.close()
-        conn.close()
+            WHERE po_number = :po_number
+        """),
+        {"po_number": str(po_number)}
+    )
+    return [
+        {
+            "po_number": str(r[0]),
+            "product_code": str(r[1]),
+            "product_full_desc": str(r[2]),
+            "store_code": str(r[3]),
+            "po_total_qty": float(r[4] or 0),
+            "purchase_price": float(r[5] or 0)
+        }
+        for r in result
+    ]
 
 def update_invoice_item_code(invoice_item_id, new_product_code):
     """
     Updates the product_code of an invoice item, effectively manual matching it.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
     try:
-        cursor.execute(
-            """
-            UPDATE invoice_items 
-            SET product_code = %s 
-            WHERE id = %s
-            """,
-            (new_product_code, invoice_item_id)
+        db.session.execute(
+            text("""
+                UPDATE invoice_items 
+                SET product_code = :new_product_code 
+                WHERE id = :invoice_item_id
+            """),
+            {"new_product_code": new_product_code, "invoice_item_id": invoice_item_id}
         )
-        conn.commit()
+        db.session.commit()
         return {"status": "success"}
     except Exception as e:
-        conn.rollback()
+        db.session.rollback()
         return {"error": str(e)}
-    finally:
-        cursor.close()
-        conn.close()

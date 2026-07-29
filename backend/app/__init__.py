@@ -1,14 +1,10 @@
 import logging
-import sys
 
 from flask import Flask
 from flask_cors import CORS
 from flask_session import Session
-from flask_bcrypt import Bcrypt
 from app.config import ApplicationConfig
 from .extensions import db
-
-bcrypt = Bcrypt()
 
 
 def _setup_logging(app):
@@ -35,7 +31,6 @@ def create_app():
     CORS(app, supports_credentials=True)
     Session(app)
     db.init_app(app)
-    bcrypt.init_app(app)
 
     # Import models so every table (match_jobs, psr_jobs, invoices, …) is
     # registered on db.metadata before create_all() — otherwise newly added
@@ -56,9 +51,9 @@ def create_app():
 
 
 def register_blueprints(app):
-    from app.routes.preprocessing import preprocessing_bp
+    from app.routes.preprocessing_routes import preprocessing_bp
     from app.routes.data_routes import getData_bp
-    from app.ocr.paddleOCR import paddleocr_bp
+    from app.routes.ocr_routes import paddleocr_bp
     from app.routes.main_routes import main_bp
     from app.routes.matching_routes import matching_bp
     from app.routes.pipeline_routes import pipeline_bp

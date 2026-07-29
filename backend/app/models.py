@@ -1,5 +1,3 @@
-import string
-import random
 from app.extensions import db
 
 class Invoice(db.Model):

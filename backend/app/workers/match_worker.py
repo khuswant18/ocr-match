@@ -47,7 +47,7 @@ def _process_one_job(app):
     with app.app_context():
         from app.models import db, MatchJob
         from app.services.matching_service import run_three_way_match, run_match_from_payload
-        from app.ocr.paddleOCR import extract_and_parse, ExtractionError
+        from app.ocr.engine import extract_and_parse, ExtractionError
         import requests as req
 
         job = (

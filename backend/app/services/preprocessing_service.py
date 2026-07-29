@@ -7,7 +7,6 @@ import imutils
 from app.utils.utils import convert_to_base64
 from app.utils.utils import load_image
 
-
 def apply_grayscale():
     img = load_image()
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)

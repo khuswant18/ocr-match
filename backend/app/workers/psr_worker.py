@@ -41,7 +41,7 @@ def _process_one_job(app):
     with app.app_context():
         from app.models import db, PsrJob
         from app.services.psr_service import run_psr_extract_and_match
-        from app.ocr.paddleOCR import ExtractionError
+        from app.ocr.engine import ExtractionError
 
         job = (
             PsrJob.query

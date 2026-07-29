@@ -1,7 +1,5 @@
-# ── Secrets ───────────────────────────────────────────────────────────────────
 .env
 
-# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
@@ -11,15 +9,11 @@ dist/
 build/
 .eggs/
 
-# ── Virtual environment ───────────────────────────────────────────────────────
 venv/
 
-# ── Uploads (runtime files, not source) ──────────────────────────────────────
 uploads/
 
-# ── Test / debug artefacts ────────────────────────────────────────────────────
 *.log
 
-# ── ML model weights (too large for git, copy separately) ────────────────────
 models/layoutlmv3-invoices/model.safetensors
 models/layoutlmv3-invoices/training_args.bin

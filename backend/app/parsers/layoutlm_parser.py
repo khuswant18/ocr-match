@@ -19,16 +19,42 @@ from transformers import AutoProcessor, LayoutLMv3ForTokenClassification
 
 logger = logging.getLogger(__name__)
 
-# ── Model path ────────────────────────────────────────────────────────────
 _MODEL_DIR = os.environ.get(
     "LAYOUTLM_MODEL_DIR",
     os.path.join(os.path.dirname(__file__), "..", "..", "models", "layoutlmv3-invoices"),
 )
 
-# ── Singleton model + processor (loaded once at first call) ───────────────
 _model = None
 _processor = None
 _load_lock = threading.Lock()
+
+_FIELD_MAP = {
+    "INVOICE_NUMBER":   ("invoice_number",),
+    "PO_NUMBER":        ("po_number",),
+    "INVOICE_DATE":     ("invoice_date",),
+    "SO_NUMBER":        ("so_number",),
+    "TERMS":            ("terms",),
+    "VENDOR_NAME":      ("supplier", "name"),
+    "VENDOR_ADDRESS":   ("supplier", "address"),
+    "VENDOR_GSTIN":     ("supplier", "tin"),
+    "VENDOR_TIN":       ("supplier", "tin"),
+    "VENDOR_CONTACT":   ("supplier", "contact"),
+    "VENDOR_NUMBER":    ("supplier", "vendor_number"),
+    "CUSTOMER_NAME":    ("buyer", "name"),
+    "CUSTOMER_ADDRESS": ("buyer", "address"),
+    "CUSTOMER_GSTIN":   ("buyer", "tin"),
+    "CUSTOMER_TIN":     ("buyer", "tin"),
+    "TOTAL_AMOUNT":     ("financials", "total_amount"),
+    "SUBTOTAL":         ("financials", "subtotal"),
+    "DISCOUNT":         ("financials", "discount"),
+}
+
+_ITEM_LABELS = {
+    "ITEM_DESCRIPTION", "QUANTITY", "UNIT_PRICE", "LINE_AMOUNT",
+    "UNIT", "TOTAL_PIECES_PER_ITEM",
+}
+
+_SKIP_LABELS = {"OTHER", "TOTAL_BOX", "TOTAL_PIECES", "SUPPLIER_NUMBER"}
 
 
 def _ensure_loaded():
@@ -56,20 +82,10 @@ def _ensure_loaded():
         _model.eval()
         print("[STARTUP] LayoutLMv3 model loaded successfully.", flush=True)
 
-
-# ── Prediction ────────────────────────────────────────────────────────────
-
 def predict_labels(image: Image.Image, words: list[str], boxes: list[list[int]]):
     """
     Run LayoutLMv3 inference on a single page.
-
-    Args:
-        image:  PIL RGB image of the page.
-        words:  List of OCR word strings.
-        boxes:  List of [x0, y0, x1, y1] normalised to 0–1000.
-
-    Returns:
-        List of (word, label) tuples — one per input word.
+    Returns: List of (word, label) tuples one per input word.
     """
     _ensure_loaded()
 
@@ -101,41 +117,6 @@ def predict_labels(image: Image.Image, words: list[str], boxes: list[list[int]])
 
     return list(zip(words, per_word_labels))
 
-
-# ── Structured extraction ─────────────────────────────────────────────────
-
-# Map LayoutLMv3 labels → JSON paths in the LLM parser's output schema
-_FIELD_MAP = {
-    "INVOICE_NUMBER":   ("invoice_number",),
-    "PO_NUMBER":        ("po_number",),
-    "INVOICE_DATE":     ("invoice_date",),
-    "SO_NUMBER":        ("so_number",),
-    "TERMS":            ("terms",),
-    "VENDOR_NAME":      ("supplier", "name"),
-    "VENDOR_ADDRESS":   ("supplier", "address"),
-    "VENDOR_GSTIN":     ("supplier", "tin"),
-    "VENDOR_TIN":       ("supplier", "tin"),
-    "VENDOR_CONTACT":   ("supplier", "contact"),
-    "VENDOR_NUMBER":    ("supplier", "vendor_number"),
-    "CUSTOMER_NAME":    ("buyer", "name"),
-    "CUSTOMER_ADDRESS": ("buyer", "address"),
-    "CUSTOMER_GSTIN":   ("buyer", "tin"),
-    "CUSTOMER_TIN":     ("buyer", "tin"),
-    "TOTAL_AMOUNT":     ("financials", "total_amount"),
-    "SUBTOTAL":         ("financials", "subtotal"),
-    "DISCOUNT":         ("financials", "discount"),
-}
-
-# Labels that represent line-item fields (grouped spatially into rows)
-_ITEM_LABELS = {
-    "ITEM_DESCRIPTION", "QUANTITY", "UNIT_PRICE", "LINE_AMOUNT",
-    "UNIT", "TOTAL_PIECES_PER_ITEM",
-}
-
-# Labels we ignore when building structured output
-_SKIP_LABELS = {"OTHER", "TOTAL_BOX", "TOTAL_PIECES", "SUPPLIER_NUMBER"}
-
-
 def _set_nested(d: dict, path: tuple, value: str):
     """Set a value in a nested dict using a path tuple, appending if already set."""
     for key in path[:-1]:
@@ -146,26 +127,8 @@ def _set_nested(d: dict, path: tuple, value: str):
     else:
         d[path[-1]] = value
 
-
 def extract_fields(image: Image.Image, words: list[str], boxes: list[list[int]]) -> dict:
-    """
-    Run LayoutLMv3 and return a structured dict matching the LLM parser schema.
 
-    Returns a dict like:
-    {
-        "invoice_number": "...",
-        "po_number": "...",
-        "invoice_date": "...",
-        "supplier": {"name": "...", "address": "...", "tin": "..."},
-        "buyer": {"name": "...", "address": "...", "tin": "..."},
-        "financials": {"subtotal": ..., "total_amount": ..., "discount": ...},
-        "_layoutlm_used": True,
-        "_item_words": [{"word": "...", "label": "...", "box": [...]}],
-    }
-
-    The `_item_words` key contains raw per-word item labels for downstream
-    grouping or for the LLM to use as hints.
-    """
     labeled = predict_labels(image, words, boxes)
     if not labeled:
         return {}
@@ -194,16 +157,13 @@ def extract_fields(image: Image.Image, words: list[str], boxes: list[list[int]])
             })
 
     # Attach raw item words so the pipeline can attempt spatial grouping
-    # or pass them to the LLM as structured hints
     result["_item_words"] = item_words
 
-    # Clean up empty nested dicts
     for key in ("supplier", "buyer", "financials"):
         if not result[key]:
             result[key] = {}
 
     return result
-
 
 def extract_fields_multi_page(
     images: list[Image.Image],
@@ -212,7 +172,6 @@ def extract_fields_multi_page(
 ) -> dict:
     """
     Run LayoutLMv3 across multiple pages and merge results.
-
     Each argument is a list (one element per page).
     """
     merged = {
@@ -225,22 +184,20 @@ def extract_fields_multi_page(
 
     for page_img, page_words, page_boxes in zip(images, all_words, all_boxes):
         page_result = extract_fields(page_img, page_words, page_boxes)
+        print("page_result=====================", page_result)
         if not page_result:
             continue
 
-        # Merge header fields (first non-empty wins)
         for key in ("invoice_number", "po_number", "invoice_date", "so_number", "terms"):
             if key not in merged and page_result.get(key):
                 merged[key] = page_result[key]
 
-        # Merge nested dicts (first non-empty per sub-field wins)
         for key in ("supplier", "buyer", "financials"):
             page_sub = page_result.get(key, {})
             for sub_key, sub_val in page_sub.items():
                 if sub_val and not merged[key].get(sub_key):
                     merged[key][sub_key] = sub_val
 
-        # Accumulate item words from all pages
         merged["_item_words"].extend(page_result.get("_item_words", []))
 
     return merged
