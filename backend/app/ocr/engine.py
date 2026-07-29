@@ -189,6 +189,104 @@ def _run_document_ocr(images, job_id=None):
                 continue
             raise
 
+import re
+
+def _clean_po_number(po: str) -> str:
+    """Extract the core PO number from noisy LayoutLMv3 output.
+
+    Common patterns:
+      'SHIPPING INSTRUCTIONS:PO:4387858MFL' -> '4387858'
+      'PO:VFI-4019321FGL'                   -> '4019321'
+      'PO:4017756MCL'                       -> '4017756'
+      '4017883MCL'                           -> '4017883'
+    """
+    if not po or not po.strip():
+        return po
+
+    # Try to find a 7-digit PO number (most common pattern)
+    match = re.search(r'(?:PO[:\s#-]*(?:VFI[- ]?)?)?(\d{7})', po)
+    if match:
+        return match.group(1)
+
+    # Try 6-8 digit number
+    match = re.search(r'(\d{6,8})', po)
+    if match:
+        return match.group(1)
+
+    return po.strip()
+
+
+def _clean_invoice_number(inv: str) -> str:
+    """Filter out barcode-like strings mislabeled as invoice numbers.
+
+    Real invoice numbers look like 'No.78715', 'No.1345892'.
+    Barcodes look like '000092300924', '0009460046006'.
+    """
+    if not inv or not inv.strip():
+        return inv
+
+    cleaned = inv.strip()
+
+    # If it starts with 'No.' or 'No ', it's a real invoice number - clean it
+    if cleaned.lower().startswith('no'):
+        # Remove 'No.' prefix for cleanliness
+        cleaned = re.sub(r'^No\.?\s*', '', cleaned, flags=re.IGNORECASE).strip()
+        # If there's a space with garbage after, take the first part
+        parts = cleaned.split()
+        if len(parts) > 1:
+            # Check if second part looks like a duplicate
+            if parts[0] in parts[1]:
+                return parts[0]
+        return cleaned
+
+    # All-digit strings >8 chars starting with 0 are likely barcodes
+    digits_only = re.sub(r'\s+', '', cleaned)
+    if digits_only.isdigit() and len(digits_only) > 8 and digits_only.startswith('0'):
+        return ""  # discard barcode
+
+    return cleaned
+
+
+def _clean_financial_dupes(fin: dict):
+    """Fix financial fields with duplicated values like '45,345.29 45,345.29'.
+
+    Keeps the last numeric token (usually the net/final amount).
+    """
+    for key in ('total_amount', 'subtotal', 'discount'):
+        val = fin.get(key, '')
+        if not val or ' ' not in str(val).strip():
+            continue
+
+        # Split on spaces and try to extract valid numbers
+        parts = str(val).strip().split()
+        valid_nums = []
+        for p in parts:
+            try:
+                float(p.replace(',', '').replace('.', '', p.count('.') - 1))
+                valid_nums.append(p)
+            except (ValueError, TypeError):
+                continue
+
+        if valid_nums:
+            # Keep the last value (usually the net amount after discount)
+            fin[key] = valid_nums[-1]
+
+
+def _postprocess_parsed_data(data: dict):
+    """Apply all post-processing fixes to parsed data in-place."""
+    # Fix 1: Clean PO number
+    if data.get('po_number'):
+        data['po_number'] = _clean_po_number(data['po_number'])
+
+    # Fix 5: Clean invoice number
+    if data.get('invoice_number'):
+        data['invoice_number'] = _clean_invoice_number(data['invoice_number'])
+
+    # Fix 3: Clean financial duplicates
+    if data.get('financials') and isinstance(data['financials'], dict):
+        _clean_financial_dupes(data['financials'])
+
+
 def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existing_path=None):
     ocr_method = 'PaddleOCR+LayoutLMv3'
 
@@ -232,6 +330,7 @@ def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existin
     check_cancelled(job_id)
 
     layoutlm_data = {}
+    layoutlm_time = 0.0
     try:
         page_words, page_boxes, page_images = _extract_words_and_boxes(
             all_results, images,
@@ -255,6 +354,23 @@ def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existin
     print("layoutlm_data================================================>", layoutlm_data)
 
     check_cancelled(job_id)
+
+    # -- Use LayoutLMv3 data directly as parsed_data (LLM disabled) --
+    parsed_data = {k: v for k, v in layoutlm_data.items() if not k.startswith("_")}
+    parsing_time = layoutlm_time
+
+    if po_number and isinstance(parsed_data, dict):
+        parsed_data["po_number"] = po_number
+
+    # ── Post-processing: clean noisy fields ──
+    if isinstance(parsed_data, dict):
+        _postprocess_parsed_data(parsed_data)
+
+    print("\n" + "=" * 60)
+    print("[LayoutLMv3-ONLY] FINAL PARSED DATA:")
+    print("=" * 60)
+    print(json.dumps(parsed_data, indent=4, default=str))
+    print("=" * 60 + "\n")
 
     # LLM: extract full structured data (esp. line items)
     # start_time_parsing = time.time()
@@ -295,6 +411,7 @@ def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existin
 
     meta = {
         'recognition_time': recognition_time,
+        'parsing_time': parsing_time,
         # 'parsing_time': parsing_time,
         'average_confidence': average_confidence * 100,
     }
@@ -344,4 +461,5 @@ def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existin
     # else:
     #     meta['warning'] = 'Document was not recognized as a valid invoice. Not saved to database.'
 
-    return invoice_id, layoutlm_data, text, meta
+    return invoice_id, parsed_data, text, meta
+

@@ -310,7 +310,7 @@ const SummaryCard = (props) => {
                       <TextField
                         id="parsed-json-static"
                         sx={{ backgroundColor: "white", borderRadius: "20px" }}
-                        label="Gemini Parsed Data (JSON)"
+                        label="Parsed Data (JSON)"
                         multiline
                         fullWidth 
                         rows={20}

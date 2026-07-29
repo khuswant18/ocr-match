@@ -1,5 +1,11 @@
 import { Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from "@mui/material";
 
+const formatNumber = (val) => {
+  const num = Number(val);
+  if (isNaN(num) || num === 0) return "—";
+  return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 const ItemsTable = ({ data }) => {
   const items = data?.items || [];
 
@@ -12,6 +18,7 @@ const ItemsTable = ({ data }) => {
         <TableHead>
           <TableRow>
             <TableCell sx={{ fontWeight: "bold" }}>Description</TableCell>
+            <TableCell align="center" sx={{ fontWeight: "bold" }}>UOM</TableCell>
             <TableCell align="right" sx={{ fontWeight: "bold" }}>Qty</TableCell>
             <TableCell align="right" sx={{ fontWeight: "bold" }}>Unit Price</TableCell>
             <TableCell align="right" sx={{ fontWeight: "bold" }}>Total Price</TableCell>
@@ -20,10 +27,11 @@ const ItemsTable = ({ data }) => {
         <TableBody>
           {items.map((item, index) => (
             <TableRow key={index}>
-              <TableCell component="th" scope="row">{item.description}</TableCell>
-              <TableCell align="right">{item.quantity}</TableCell>
-              <TableCell align="right">₹ {item.unit_price}</TableCell>
-              <TableCell align="right">₹ {item.total_price}</TableCell>
+              <TableCell component="th" scope="row">{item.description || "—"}</TableCell>
+              <TableCell align="center">{item.uom || "—"}</TableCell>
+              <TableCell align="right">{item.quantity || "—"}</TableCell>
+              <TableCell align="right">{formatNumber(item.unit_price)}</TableCell>
+              <TableCell align="right">{formatNumber(item.total_price)}</TableCell>
             </TableRow>
           ))}
         </TableBody>

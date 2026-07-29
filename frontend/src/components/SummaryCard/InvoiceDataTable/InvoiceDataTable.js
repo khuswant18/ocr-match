@@ -16,12 +16,14 @@ const InvoiceTable = (props) => {
     if (["subtotal", "vat", "discount", "total_amount"].includes(field)) {
        if (!newData.financials) newData.financials = {};
        newData.financials[field] = e.target.value;
-    } else if (field === "supplier_name" || field === "supplier_tin") {
+    } else if (field === "supplier_name" || field === "supplier_tin" || field === "supplier_contact" || field === "vendor_number") {
        if (!newData.supplier) newData.supplier = {};
-       newData.supplier[field === "supplier_name" ? "name" : "tin"] = e.target.value;
-    } else if (field === "buyer_name" || field === "buyer_tin") {
+       const keyMap = { supplier_name: "name", supplier_tin: "tin", supplier_contact: "contact", vendor_number: "vendor_number" };
+       newData.supplier[keyMap[field]] = e.target.value;
+    } else if (field === "buyer_name" || field === "buyer_tin" || field === "buyer_address") {
        if (!newData.buyer) newData.buyer = {};
-       newData.buyer[field === "buyer_name" ? "name" : "tin"] = e.target.value;
+       const keyMap = { buyer_name: "name", buyer_tin: "tin", buyer_address: "address" };
+       newData.buyer[keyMap[field]] = e.target.value;
     } else {
        newData[field] = e.target.value;
     }
@@ -40,10 +42,16 @@ const InvoiceTable = (props) => {
       rawValue = localData.supplier?.name;
     } else if (field === "supplier_tin") {
       rawValue = localData.supplier?.tin;
+    } else if (field === "supplier_contact") {
+      rawValue = localData.supplier?.contact;
+    } else if (field === "vendor_number") {
+      rawValue = localData.supplier?.vendor_number;
     } else if (field === "buyer_name") {
       rawValue = localData.buyer?.name;
     } else if (field === "buyer_tin") {
       rawValue = localData.buyer?.tin;
+    } else if (field === "buyer_address") {
+      rawValue = localData.buyer?.address;
     }
 
     let displayValue = rawValue ?? "";
@@ -67,12 +75,16 @@ const InvoiceTable = (props) => {
   const fields = [
     { field: "invoice_number", label: "Invoice Number" },
     { field: "po_number", label: "PO Number" },
+    { field: "so_number", label: "SO Number" },
     { field: "invoice_date", label: "Invoice Date" },
-    { field: "due_date", label: "Due Date" },
+    { field: "terms", label: "Terms" },
     { field: "supplier_name", label: "Supplier" },
     { field: "supplier_tin", label: "Supplier TIN" },
+    { field: "supplier_contact", label: "Supplier Contact" },
+    { field: "vendor_number", label: "Vendor Number" },
     { field: "buyer_name", label: "Buyer / Store" },
     { field: "buyer_tin", label: "Buyer TIN" },
+    { field: "buyer_address", label: "Buyer Address" },
     { field: "store_code", label: "Store Code" },
     { field: "subtotal", label: "Subtotal" },
     { field: "vat", label: "VAT" },

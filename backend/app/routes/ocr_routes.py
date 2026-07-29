@@ -22,12 +22,28 @@ def process_paddleocr():
         if file is None:
             return jsonify({'error': 'No valid image or PDF found in request.'}), 400
 
-        response = extract_and_parse(file.read(),file.filename)
-        print("response===============================================>",response) 
+        invoice_id, parsed_data, text, meta = extract_and_parse(
+            file.read(), file.filename,
+        )
+        print("response===============================================>", parsed_data)
         # invoice_id, parsed_data, text, meta = extract_and_parse(
         #     file.read(), file.filename, po_number=po_number, job_id=job_id,
         # )
         # print("Parsed data: ", parsed_data)
+
+        response = {
+            'text': text,
+            'parsed_data': parsed_data,
+            'time': {
+                'recognition': meta['recognition_time'],
+                'parsing': meta['parsing_time'],
+            },
+            'average_confidence': meta['average_confidence'],
+        }
+        if invoice_id is not None:
+            response['invoice_id'] = invoice_id
+        if meta.get('warning'):
+            response['warning'] = meta['warning']
 
         # response = {
         #     'text': text,
@@ -43,7 +59,7 @@ def process_paddleocr():
         # if meta.get('warning'):
         #     response['warning'] = meta['warning']
 
-        return jsonify({"message": "TEST VERSION 123"}), 200
+        return jsonify(response), 200
 
     except JobCancelledError as e:
         print(f"[OCR] Job cancelled: {e}")
