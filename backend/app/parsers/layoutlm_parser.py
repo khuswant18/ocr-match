@@ -56,7 +56,6 @@ _ITEM_LABELS = {
 
 _SKIP_LABELS = {"OTHER", "TOTAL_BOX", "TOTAL_PIECES", "SUPPLIER_NUMBER"}
 
-
 def _ensure_loaded():
     """Load the model + processor exactly once (thread-safe)."""
     global _model, _processor
@@ -117,9 +116,7 @@ def predict_labels(image: Image.Image, words: list[str], boxes: list[list[int]])
 
     return list(zip(words, per_word_labels))
 
-# Fields where we should keep only the FIRST occurrence (names)
 _KEEP_FIRST_FIELDS = {"name"}
-# Fields where we should keep only the LAST occurrence (financials at page bottom)
 _KEEP_LAST_FIELDS = {"total_amount", "subtotal", "discount"}
 
 
@@ -137,12 +134,11 @@ def _set_nested(d: dict, path: tuple, value: str):
     if not existing:
         d[field_name] = value
     elif field_name in _KEEP_FIRST_FIELDS:
-        pass  # keep the first value, ignore subsequent duplicates
+        pass
     elif field_name in _KEEP_LAST_FIELDS:
-        d[field_name] = value  # overwrite with the latest value
+        d[field_name] = value
     else:
         d[field_name] = f"{existing} {value}"
-
 
 def _parse_numeric(value: str, default=0.0):
     """Parse a numeric string, stripping commas and currency symbols."""
@@ -153,7 +149,6 @@ def _parse_numeric(value: str, default=0.0):
         return float(clean)
     except (ValueError, TypeError):
         return default
-
 
 import re as _re
 
@@ -203,7 +198,6 @@ def _dedup_name(name: str) -> str:
     return best_split if best_split else normalized
 
 
-# ── Label-to-item-field mapping for row assembly ──
 _ITEM_LABEL_TO_FIELD = {
     "ITEM_DESCRIPTION":     "description",
     "QUANTITY":             "quantity",
@@ -213,85 +207,194 @@ _ITEM_LABEL_TO_FIELD = {
     "TOTAL_PIECES_PER_ITEM": "total_pieces",
 }
 
+def _monotonic_assign(
+    values: list[dict], slots_y: list[float]
+) -> list[int | None]:
+    """Solve monotonic assignment from M values to N slots (M ≤ N).
+
+    Finds the order-preserving mapping (each value goes to a slot index ≥
+    the previous value's slot) that minimises total |y_value - y_slot| cost.
+    Slots with no assigned value get ``None``.
+
+    Returns a length-N list: ``slot_to_value[i]`` is the index into *values*
+    assigned to slot *i*, or ``None`` if the slot is empty.
+
+    Algorithm: DP similar to sequence alignment with gap/skip.
+    ``dp[j][i]`` = min cost of assigning the first *j* values to some
+    monotonic subset of the first *i* slots.
+    """
+    M = len(values)
+    N = len(slots_y)
+
+    if M == 0:
+        return [None] * N
+
+    values_y = [v["_y_center"] for v in values]
+
+    INF = float("inf")
+    # dp[j][i]: min cost assigning first j values into first i slots
+    # j in 0..M, i in 0..N
+    dp = [[INF] * (N + 1) for _ in range(M + 1)]
+    dp[0] = [0.0] * (N + 1)
+
+    for j in range(1, M + 1):
+        for i in range(j, N + 1):  # need at least j slots for j values
+            # Option 1: skip slot i (don't assign any value to slot i)
+            skip = dp[j][i - 1]
+            # Option 2: assign value j to slot i
+            cost = abs(values_y[j - 1] - slots_y[i - 1])
+            assign = dp[j - 1][i - 1] + cost
+            dp[j][i] = min(skip, assign)
+
+    # Backtrack to recover the assignment
+    slot_to_value: list[int | None] = [None] * N
+    j, i = M, N
+    while j > 0 and i > 0:
+        if i > j and dp[j][i - 1] <= dp[j][i]:
+            # This slot was skipped
+            i -= 1
+        else:
+            # Value j was assigned to slot i
+            slot_to_value[i - 1] = j - 1
+            j -= 1
+            i -= 1
+
+    return slot_to_value
+
+
+def _arithmetic_check(
+    qty: float, unit_price: float, line_amount: float, tol: float = 0.01
+) -> bool:
+    """Check whether qty × unit_price ≈ line_amount within tolerance.
+
+    Returns True (passes) if any of the three values is 0/missing — there's
+    nothing to check — or if the computed product is within tolerance.
+    """
+    if qty == 0 or unit_price == 0 or line_amount == 0:
+        return True  # can't verify with missing data
+    expected = qty * unit_price
+    abs_tol = max(abs(line_amount) * tol, 0.01)
+    return abs(expected - line_amount) <= abs_tol
+
+
+def _swap_correction(items: list[dict], field: str) -> list[dict]:
+    """Try pairwise adjacent swaps of *field* to maximise arithmetic-passing rows.
+
+    For each row that fails ``_arithmetic_check``, try swapping *field* with
+    the adjacent row and keep whichever configuration produces more passing
+    rows across the whole table.
+    """
+    if len(items) < 2:
+        return items
+
+    def _count_passing(itms: list[dict]) -> int:
+        return sum(
+            1
+            for it in itms
+            if _arithmetic_check(it["quantity"], it["unit_price"], it["total_price"])
+        )
+
+    best_score = _count_passing(items)
+
+    # Try swapping each consecutive pair for the given field
+    for idx in range(len(items) - 1):
+        a, b = items[idx], items[idx + 1]
+        # Only try if at least one of the pair currently fails
+        if _arithmetic_check(a["quantity"], a["unit_price"], a["total_price"]) and \
+           _arithmetic_check(b["quantity"], b["unit_price"], b["total_price"]):
+            continue
+
+        # Swap
+        a[field], b[field] = b[field], a[field]
+        new_score = _count_passing(items)
+        if new_score > best_score:
+            best_score = new_score  # keep the swap
+        else:
+            # Revert
+            a[field], b[field] = b[field], a[field]
+
+    return items
+
 
 def _group_item_words_into_rows(item_words: list[dict]) -> list[dict]:
-    """
-    Spatially group labeled item words into structured line-item rows.
+    """Spatially group labeled item words into structured line-item rows.
 
-    Each entry in `item_words` has:
-        word  - the OCR text
-        label - LayoutLMv3 label (e.g. QUANTITY, ITEM_DESCRIPTION)
-        box   - [x0, y0, x1, y1] normalised to 0-1000
+    Each entry in ``item_words`` has:
+        word  – the OCR text
+        label – LayoutLMv3 label (e.g. QUANTITY, ITEM_DESCRIPTION)
+        box   – [x0, y0, x1, y1] normalised to 0-1000
 
-    Strategy (description-anchored):
-      1. Find all ITEM_DESCRIPTION words - these anchor the rows.
-      2. Find all numeric/unit words (QUANTITY, UNIT_PRICE, LINE_AMOUNT, UNIT).
-      3. For each numeric word, assign it to the nearest description by
-         Y-coordinate distance.  This handles the common invoice layout
-         where numbers sit slightly above or below the description.
-      4. Assemble each group into a structured item dict.
+    Strategy (description-anchored, monotonic DP alignment):
+      1. ITEM_DESCRIPTION words sorted by y are the N row anchors.
+      2. For each field column, solve a monotonic (order-preserving)
+         assignment to the N row slots that minimises total y-distance.
+      3. Pairwise swap correction using qty×price≈amount arithmetic.
+      4. Backfill missing total_price or unit_price from the other two.
+      5. Tag rows that still fail the arithmetic check with _low_confidence.
     """
     if not item_words:
         return []
 
-    # Filter out words with no box info
     valid = [w for w in item_words if w.get("box") and len(w["box"]) == 4]
     if not valid:
         return []
 
-    # Compute Y-centre for every word
     for w in valid:
         w["_y_center"] = (w["box"][1] + w["box"][3]) / 2.0
 
-    # Separate descriptions from numeric/unit fields
     desc_words = [w for w in valid if w["label"] == "ITEM_DESCRIPTION"]
-    numeric_words = [w for w in valid if w["label"] != "ITEM_DESCRIPTION"]
 
     if not desc_words:
-        # No descriptions found - fall back to pure Y-clustering
         return _group_by_y_clustering(valid)
 
-    # Sort descriptions by Y position (top to bottom)
+    # --- Step 1: Row anchors from descriptions (sorted by y) ---
     desc_words.sort(key=lambda w: w["_y_center"])
+    N = len(desc_words)
+    slots_y = [dw["_y_center"] for dw in desc_words]
 
-    # Build one bucket per description
-    buckets: list[list[dict]] = [[] for _ in desc_words]
+    # --- Step 2: Separate each field column, sorted by y ---
+    field_columns: dict[str, list[dict]] = {}
+    for w in valid:
+        if w["label"] == "ITEM_DESCRIPTION":
+            continue
+        field_columns.setdefault(w["label"], []).append(w)
+    for col_words in field_columns.values():
+        col_words.sort(key=lambda w: w["_y_center"])
 
-    # Assign each numeric word to its nearest description by Y-distance
-    for nw in numeric_words:
-        best_idx = 0
-        best_dist = abs(nw["_y_center"] - desc_words[0]["_y_center"])
-        for i, dw in enumerate(desc_words[1:], 1):
-            dist = abs(nw["_y_center"] - dw["_y_center"])
-            if dist < best_dist:
-                best_dist = dist
-                best_idx = i
-        buckets[best_idx].append(nw)
+    # --- Step 3: Monotonic DP assignment per field ---
+    # slot_assignments[label] = list of length N, each entry is assigned word or None
+    slot_assignments: dict[str, list[dict | None]] = {}
+    for label, col_words in field_columns.items():
+        mapping = _monotonic_assign(col_words, slots_y)
+        slot_assignments[label] = [
+            col_words[mapping[i]] if mapping[i] is not None else None
+            for i in range(N)
+        ]
 
-    # Assemble each bucket into a structured item
-    items = []
-    for desc_w, bucket in zip(desc_words, buckets):
-        item = {
-            "description": desc_w["word"],
+    # --- Assemble row dicts ---
+    items: list[dict] = []
+    for row_idx in range(N):
+        item: dict = {
+            "description": desc_words[row_idx]["word"],
             "quantity": 0,
             "unit_price": 0.0,
             "total_price": 0.0,
             "uom": "",
             "product_code": "",
+            "_dp_row": True,
         }
 
-        # Collect fields from the bucket
+        # Collect all assigned words for this row, grouped by field
         field_texts: dict[str, list[str]] = {}
-        for w in bucket:
-            field = _ITEM_LABEL_TO_FIELD.get(w["label"])
-            if field:
-                field_texts.setdefault(field, []).append(w["word"])
+        for label, assignments in slot_assignments.items():
+            assigned_word = assignments[row_idx]
+            if assigned_word is not None:
+                field = _ITEM_LABEL_TO_FIELD.get(label)
+                if field:
+                    field_texts.setdefault(field, []).append(assigned_word["word"])
 
-        # Assign text fields
         if "uom" in field_texts:
             item["uom"] = " ".join(field_texts["uom"])
-
-        # Assign numeric fields
         if "quantity" in field_texts:
             item["quantity"] = _parse_numeric(field_texts["quantity"][0])
         if "unit_price" in field_texts:
@@ -299,7 +402,14 @@ def _group_item_words_into_rows(item_words: list[dict]) -> list[dict]:
         if "total_price" in field_texts:
             item["total_price"] = _parse_numeric(field_texts["total_price"][0])
 
-        # Cross-check: infer missing total_price or unit_price
+        items.append(item)
+
+    # --- Step 4: Swap correction using arithmetic consistency ---
+    for field in ("quantity", "unit_price", "total_price"):
+        _swap_correction(items, field)
+
+    # --- Step 5: Backfill missing total_price or unit_price ---
+    for item in items:
         qty = item["quantity"]
         up = item["unit_price"]
         tp = item["total_price"]
@@ -308,7 +418,14 @@ def _group_item_words_into_rows(item_words: list[dict]) -> list[dict]:
         elif up == 0 and qty > 0 and tp > 0:
             item["unit_price"] = round(tp / qty, 2)
 
-        items.append(item)
+    # --- Step 6: Flag low-confidence rows ---
+    for item in items:
+        qty = item["quantity"]
+        up = item["unit_price"]
+        tp = item["total_price"]
+        if qty != 0 and up != 0 and tp != 0:
+            if not _arithmetic_check(qty, up, tp):
+                item["_low_confidence"] = True
 
     return _merge_continuation_items(items)
 
@@ -334,7 +451,7 @@ def _merge_continuation_items(items: list[dict]) -> list[dict]:
             or item.get("total_price", 0) not in (0, 0.0)
         )
 
-        if has_desc and not has_numbers and merged:
+        if has_desc and not has_numbers and not item.get("_dp_row") and merged:
             # This is a continuation line - merge into previous item
             prev = merged[-1]
             prev["description"] = f"{prev['description']} {item['description']}".strip()
@@ -343,6 +460,10 @@ def _merge_continuation_items(items: list[dict]) -> list[dict]:
                 prev["uom"] = item["uom"]
         else:
             merged.append(item)
+
+    # Clean up internal markers
+    for item in merged:
+        item.pop("_dp_row", None)
 
     return merged
 
