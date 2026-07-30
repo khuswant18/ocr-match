@@ -81,16 +81,10 @@ def _ensure_loaded():
         _model.eval()
         print("[STARTUP] LayoutLMv3 model loaded successfully.", flush=True)
 
-def predict_labels(image: Image.Image, words: list[str], boxes: list[list[int]]):
-    """
-    Run LayoutLMv3 inference on a single page.
-    Returns: List of (word, label) tuples one per input word.
-    """
-    _ensure_loaded()
-
-    if not words:
-        return []
-
+def _predict_single_pass(
+    image: Image.Image, words: list[str], boxes: list[list[int]]
+) -> list[tuple[str, str]]:
+    """Run LayoutLMv3 inference in a single pass (all words fit in 512 tokens)."""
     encoding = _processor(
         image, words, boxes=boxes,
         truncation=True, return_tensors="pt",
@@ -113,6 +107,118 @@ def predict_labels(image: Image.Image, words: list[str], boxes: list[list[int]])
         seen.add(word_id)
         if token_idx < len(preds):
             per_word_labels[word_id] = _model.config.id2label[preds[token_idx]]
+
+    return list(zip(words, per_word_labels))
+
+
+def predict_labels(image: Image.Image, words: list[str], boxes: list[list[int]]):
+    """
+    Run LayoutLMv3 inference on a single page.
+
+    When the input exceeds the model's 512-token limit, a sliding-window
+    approach is used: words are split into overlapping chunks that each
+    fit within 512 tokens, inference is run on each chunk, and per-word
+    predictions are merged by keeping the highest-confidence label.
+
+    Returns: List of (word, label) tuples, one per input word.
+    """
+    _ensure_loaded()
+
+    if not words:
+        return []
+
+    # --- Count approximate subword tokens per word ---
+    _tokenizer = _processor.tokenizer
+    tokens_per_word = []
+    for w in words:
+        n_toks = len(_tokenizer.tokenize(w)) if w.strip() else 1
+        tokens_per_word.append(max(n_toks, 1))
+
+    MAX_SEQ_LEN = 512
+    SPECIAL_TOKENS = 2          # CLS + SEP
+    available = MAX_SEQ_LEN - SPECIAL_TOKENS  # 510 content tokens
+    total_content_tokens = sum(tokens_per_word)
+
+    if total_content_tokens <= available:
+        return _predict_single_pass(image, words, boxes)
+
+    # --- Sliding window: build word-level windows ---
+    logger.info(
+        "[LayoutLMv3] Input has ~%d tokens (>%d), "
+        "using sliding window over %d words",
+        total_content_tokens + SPECIAL_TOKENS, MAX_SEQ_LEN, len(words),
+    )
+
+    windows: list[tuple[int, int]] = []   # (start_word_idx, end_word_idx)
+    start = 0
+    while start < len(words):
+        token_budget = 0
+        end = start
+        while end < len(words) and token_budget + tokens_per_word[end] <= available:
+            token_budget += tokens_per_word[end]
+            end += 1
+        if end == start:
+            end = start + 1             # force progress on huge single words
+
+        windows.append((start, end))
+
+        if end >= len(words):
+            break
+
+        # Step back by ~20 % of the window size so boundary words get
+        # a second prediction from the next window.
+        overlap_words = max((end - start) // 5, 3)
+        start = end - overlap_words
+
+    logger.info(
+        "[LayoutLMv3] Created %d windows: %s",
+        len(windows),
+        [(s, e) for s, e in windows],
+    )
+
+    # --- Run inference per window and merge by confidence ---
+    per_word_labels = ["OTHER"] * len(words)
+    per_word_confidence = [-1.0] * len(words)
+
+    for win_start, win_end in windows:
+        win_words = words[win_start:win_end]
+        win_boxes = boxes[win_start:win_end]
+
+        encoding = _processor(
+            image, win_words, boxes=win_boxes,
+            truncation=True, return_tensors="pt",
+        )
+
+        with torch.no_grad():
+            outputs = _model(**encoding)
+
+        logits = outputs.logits.squeeze(0)          # (seq_len, num_labels)
+        probs = torch.softmax(logits, dim=-1)
+        preds = logits.argmax(-1).tolist()
+
+        if isinstance(preds, int):
+            preds = [preds]
+
+        word_ids = encoding.word_ids(batch_index=0)
+
+        seen: set[int] = set()
+        for token_idx, word_id in enumerate(word_ids):
+            if word_id is None or word_id in seen:
+                continue
+            seen.add(word_id)
+            if token_idx >= len(preds):
+                continue
+
+            global_idx = win_start + word_id
+            if global_idx >= len(words):
+                continue
+
+            label = _model.config.id2label[preds[token_idx]]
+            conf = probs[token_idx].max().item()
+
+            if conf > per_word_confidence[global_idx]:
+                per_word_labels[global_idx] = label
+                per_word_confidence[global_idx] = conf
 
     return list(zip(words, per_word_labels))
 
