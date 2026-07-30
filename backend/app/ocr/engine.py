@@ -37,7 +37,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def _build_ocr():
     return PaddleOCR(
         use_angle_cls=True,
-        lang='en',
+        lang='ch',
         show_log=False,
         det_db_thresh=0.3,
         det_db_box_thresh=0.5,
