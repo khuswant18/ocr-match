@@ -10,6 +10,9 @@ const OCRContext = React.createContext({
   invoiceId: null,
   isInvoice: true,
   poNumber: "",
+  quality: null,
+  qualityHold: null,
+  qualityFlag: "ok",
   setActivePage: (activePage) => {},
   setOriginalImage: (image) => {},
   setActualImage: (image) => {},
@@ -19,6 +22,9 @@ const OCRContext = React.createContext({
   setInvoiceId: (invoice_id) => {},
   setIsInvoice: (isInvoice) => {},
   setPoNumber: (poNumber) => {},
+  setQuality: (quality) => {},
+  setQualityHold: (hold) => {},
+  setQualityFlag: (flag) => {},
 });
 
 export const OCRContextProvider = (props) => {
@@ -31,6 +37,13 @@ export const OCRContextProvider = (props) => {
   const [invoiceId, setInvoiceId] = useState(null);
   const [isInvoice, setIsInvoice] = useState(true);
   const [poNumber, setPoNumber] = useState("");
+  // Quality assessment state: `quality` is the full report for the last
+  // extraction, `qualityHold` is set only while a low-quality upload is
+  // waiting on a vendor decision, `qualityFlag` is ok | caution |
+  // proceeded_low_quality.
+  const [quality, setQuality] = useState(null);
+  const [qualityHold, setQualityHold] = useState(null);
+  const [qualityFlag, setQualityFlag] = useState("ok");
 
   const pageHandler = (activePage) => {
     setActivePage(activePage);
@@ -46,6 +59,9 @@ export const OCRContextProvider = (props) => {
     invoiceId: invoiceId,
     isInvoice: isInvoice,
     poNumber: poNumber,
+    quality: quality,
+    qualityHold: qualityHold,
+    qualityFlag: qualityFlag,
     setActivePage: pageHandler,
     setOriginalImage: setOriginalImage,
     setActualImage: setActualImage,
@@ -55,6 +71,9 @@ export const OCRContextProvider = (props) => {
     setInvoiceId: setInvoiceId,
     setIsInvoice: setIsInvoice,
     setPoNumber: setPoNumber,
+    setQuality: setQuality,
+    setQualityHold: setQualityHold,
+    setQualityFlag: setQualityFlag,
   };
 
   return <OCRContext.Provider value={contextValue}>{props.children}</OCRContext.Provider>;

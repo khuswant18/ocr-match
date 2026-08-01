@@ -6,12 +6,14 @@ import { useStyles } from "./styles";
 import ButtonOutlined from "../StyledComponents/ButtonOutlined";
 import httpRequest from "../../httpRequest";
 import OCRContext from "../../context/ocr-context";
+import QualityWarningDialog from "../QualityWarningDialog/QualityWarningDialog";
 import { COLORS } from "../../styles/constants";
 
 const OCRCard = () => {
   const classes = useStyles();
   const ocrCtx = useContext(OCRContext);
   const [loading, setLoading] = useState(false);
+  const [decisionLoading, setDecisionLoading] = useState(false);
   const { enqueueSnackbar } = useSnackbar();
 
   const handleOCRmethod = async (OCRmethod) => {
@@ -38,30 +40,115 @@ const OCRCard = () => {
     try {
       const startTime = performance.now();
       const resp = await httpRequest.post(`${process.env.REACT_APP_BACKEND_URL}/${OCRmethod}`, formData);
-      const endTime = performance.now(); 
-      const duration = (endTime - startTime) / 1000;
-      const time_other = duration - resp.data.time.recognition + resp.data.time.parsing;
-      const invoiceId = resp?.data?.invoice_id ?? resp?.data?.existing_invoice_id ?? null;
-      const time = resp["data"]["time"]; 
-      time["other"] = time_other; 
-      ocrCtx.setTextResult(resp["data"]["text"]); 
-      const isInvoice = checkIfInvoice(resp["data"]);
-      const extractedData = {  
-        ...resp["data"]["parsed_data"],
-        id: invoiceId,
-      };  
-      ocrCtx.setExtractedData(extractedData);
-      ocrCtx.setInvoiceId(invoiceId);
-      if (isInvoice && invoiceId != null && Number.isFinite(time_other)) {
-        saveTimeOther(invoiceId, time_other);
+
+      // Low quality: pause here and let the vendor decide. Deliberately does
+      // NOT advance to the summary page.
+      if (resp?.data?.status === "quality_hold") {
+        ocrCtx.setQualityHold(resp.data);
+        ocrCtx.setQuality(resp.data.quality ?? null);
+        setLoading(false);
+        return;
       }
+
+      const endTime = performance.now();
+      applyOcrResult(resp.data, (endTime - startTime) / 1000);
+      setLoading(false);
+      ocrCtx.setActivePage(3);
     } catch (error) {
-      console.log("Error");
-      enqueueSnackbar("Error", { variant: "error" });
+      console.log("Error", error);
+      enqueueSnackbar(
+        error?.response?.data?.error || "Extraction failed",
+        { variant: "error" }
+      );
+      // Previously the page advanced regardless, landing the user on an empty
+      // summary after a network error or a 500. Stay put instead.
+      setLoading(false);
+    }
+  };
+
+  const applyOcrResult = (data, duration) => {
+    const time_other = duration - data.time.recognition + data.time.parsing;
+    const invoiceId = data?.invoice_id ?? data?.existing_invoice_id ?? null;
+    const time = data["time"];
+    time["other"] = time_other;
+    ocrCtx.setTextResult(data["text"]);
+    const isInvoice = checkIfInvoice(data);
+    const extractedData = {
+      ...data["parsed_data"],
+      id: invoiceId,
+    };
+    ocrCtx.setExtractedData(extractedData);
+    ocrCtx.setInvoiceId(invoiceId);
+    ocrCtx.setQuality(data.quality ?? null);
+    ocrCtx.setQualityFlag(data.status ?? "ok");
+    if (isInvoice && invoiceId != null && Number.isFinite(time_other)) {
+      saveTimeOther(invoiceId, time_other);
+    }
+  };
+
+  const resetToUpload = () => {
+    ocrCtx.setQualityHold(null);
+    ocrCtx.setQuality(null);
+    ocrCtx.setQualityFlag("ok");
+    ocrCtx.setExtractedData(null);
+    ocrCtx.setTextResult(null);
+    ocrCtx.setInvoiceId(null);
+    ocrCtx.setFile(null);
+    ocrCtx.setActualImage(null);
+    ocrCtx.setOriginalImage(null);
+    // Page 0 is the upload step, whose next button is disabled until a file
+    // is chosen -- so clearing `file` parks the flow awaiting a new invoice.
+    ocrCtx.setActivePage(0);
+  };
+
+  const handleQualityDecision = async (decision) => {
+    const hold = ocrCtx.qualityHold;
+    if (!hold) return;
+
+    if (decision === "retry") {
+      setDecisionLoading(true);
+      try {
+        await httpRequest.post(
+          `${process.env.REACT_APP_BACKEND_URL}/paddleOCR/quality-decision`,
+          { assessment_id: hold.assessment_id, decision: "retry" }
+        );
+      } catch (error) {
+        // The vendor is going back to the upload step either way; a failure to
+        // release the server-side cache is not worth blocking them on.
+        console.log("quality retry cleanup failed", error);
+      }
+      setDecisionLoading(false);
+      resetToUpload();
+      return;
     }
 
-    setLoading(false);
-    ocrCtx.setActivePage(3);
+    setDecisionLoading(true);
+    try {
+      const startTime = performance.now();
+      const resp = await httpRequest.post(
+        `${process.env.REACT_APP_BACKEND_URL}/paddleOCR/quality-decision`,
+        { assessment_id: hold.assessment_id, decision: "proceed" }
+      );
+      const endTime = performance.now();
+      applyOcrResult(resp.data, (endTime - startTime) / 1000);
+      ocrCtx.setQualityHold(null);
+      setDecisionLoading(false);
+      ocrCtx.setActivePage(3);
+    } catch (error) {
+      setDecisionLoading(false);
+      if (error?.response?.status === 410) {
+        enqueueSnackbar(
+          "This quality check expired. Please upload the invoice again.",
+          { variant: "warning" }
+        );
+        resetToUpload();
+        return;
+      }
+      enqueueSnackbar(
+        error?.response?.data?.error || "Extraction failed",
+        { variant: "error" }
+      );
+    }
   };
 
   const checkIfInvoice = (data) => {
@@ -120,6 +207,14 @@ const OCRCard = () => {
 
         {loading && <CircularProgress sx={{ color: COLORS.PRIMARY, mt: "15px" }} />}
       </div>
+
+      <QualityWarningDialog
+        open={!!ocrCtx.qualityHold}
+        hold={ocrCtx.qualityHold}
+        busy={decisionLoading}
+        onRetry={() => handleQualityDecision("retry")}
+        onProceed={() => handleQualityDecision("proceed")}
+      />
     </>
   );
 };
