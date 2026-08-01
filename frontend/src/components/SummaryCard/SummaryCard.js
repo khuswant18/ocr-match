@@ -3,7 +3,8 @@ import { useSnackbar } from "notistack";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import DownloadIcon from "@mui/icons-material/Download";
 import DonutSmallIcon from "@mui/icons-material/DonutSmall";
-import { TextField, Paper, IconButton, Grid } from "@mui/material";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import { TextField, Paper, IconButton, Grid, Typography } from "@mui/material";
 import OCRContext from "../../context/ocr-context";
 import { useStyles } from "./styles";
 import ButtonContained from "../StyledComponents/ButtonContained";
@@ -214,9 +215,58 @@ const SummaryCard = (props) => {
     setDataChanged(false);
   };
 
+  // Quality banner: only for a live extraction (history views carry no
+  // quality data), and only when the document was not clean.
+  const qualityFlag = ocrCtx.qualityFlag || "ok";
+  const showQualityBanner = !props.dataFromDB && qualityFlag !== "ok";
+  const isProceeded = qualityFlag === "proceeded_low_quality";
+  const qualityIssues = ocrCtx.quality?.issues || [];
+
   return (
     <>
       <div className={classes.rootContainer}>
+        {showQualityBanner && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "0.75rem",
+              padding: "12px 16px",
+              marginBottom: "12px",
+              borderRadius: "6px",
+              border: `1px solid ${isProceeded ? "#c62828" : "#ed6c02"}`,
+              backgroundColor: isProceeded
+                ? "rgba(211, 47, 47, 0.10)"
+                : "rgba(255, 152, 0, 0.10)",
+            }}
+          >
+            <ErrorOutlineIcon
+              sx={{ color: isProceeded ? "#c62828" : "#ed6c02", mt: "2px" }}
+            />
+            <div>
+              <Typography sx={{ fontWeight: 600, fontSize: "0.92rem" }}>
+                {isProceeded
+                  ? "Results may contain inaccuracies due to poor document quality."
+                  : "Invoice quality is borderline — please review before approving."}
+                {ocrCtx.quality?.score != null && (
+                  <span style={{ fontWeight: 400, color: "#666" }}>
+                    {"  ·  Quality score "}
+                    {ocrCtx.quality.score}
+                  </span>
+                )}
+              </Typography>
+              {qualityIssues.slice(0, 3).map((issue) => (
+                <Typography
+                  key={issue.code}
+                  sx={{ color: "#666", fontSize: "0.78rem", mt: 0.25 }}
+                >
+                  {issue.message}
+                </Typography>
+              ))}
+            </div>
+          </div>
+        )}
+
         {chartOpen ? (
           <DoughnutChart
             handleCloseChart={handleCloseChart}
