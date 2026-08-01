@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 from app.models import db, MatchJob
 from app.config import MAX_UPLOAD_BYTES
+from app.ocr.quality import QUALITY_ACTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +298,27 @@ def get_job_status(job_id):
         "duration_seconds": duration,
     }
 
+    if job.status == 'quality_hold':
+        from app.ocr import quality_cache
+        record = (job.result_json or {}).get('_hold') or {}
+        token = record.get('assessment_id')
+        response["assessment_id"] = token
+        response["expires_at"] = record.get("expires_at")
+        response["quality"] = record.get("quality")
+        response["warning"] = record.get("warning")
+        response["actions"] = QUALITY_ACTIONS
+        # The hold record is durable, but the cached OCR result is in-process.
+        # Tell the client when proceeding will cost a full re-extraction.
+        if quality_cache.peek(token) is None:
+            response["resume_requires_reprocess"] = True
+        return jsonify(response), 200
+
+    if job.status == 'quality_rejected':
+        record = (job.result_json or {}).get('_hold') or {}
+        response["quality"] = record.get("quality")
+        response["message"] = job.error_message
+        return jsonify(response), 200
+
     if job.status == 'completed':
         result = job.result_json or {}
         if result.get("status") == "success":
@@ -345,6 +367,74 @@ def list_jobs():
     ]), 200
 
 
+@pipeline_bp.route('/api/pipeline/job/<int:job_id>/quality-decision', methods=['POST'])
+def job_quality_decision(job_id):
+    """Record the vendor's answer to a low-quality hold on an async job.
+
+    proceed -> flip the row back to 'pending'; the worker's existing claim
+               query picks it up on the next poll and resumes from the cached
+               OCR result. No new claim path and no waiting worker.
+    retry   -> terminal 'quality_rejected'; the vendor uploads a new invoice.
+    """
+    from app.ocr import quality_cache
+    from app.ocr.quality_log import log_decision
+    from datetime import datetime, timezone
+
+    payload = request.get_json(silent=True) or {}
+    decision = (payload.get('decision') or '').strip().lower()
+    if decision not in ('proceed', 'retry'):
+        return jsonify({"error": "decision must be either 'proceed' or 'retry'."}), 400
+
+    job = MatchJob.query.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    if job.status != 'quality_hold':
+        return jsonify({
+            "error": f"Job #{job_id} is '{job.status}', not awaiting a quality decision.",
+            "job_id": job_id,
+            "status": job.status,
+        }), 409
+
+    result = dict(job.result_json or {})
+    record = dict(result.get('_hold') or {})
+    record['decision'] = decision
+    record['decided_at'] = datetime.now(timezone.utc).isoformat()
+    result['_hold'] = record
+    quality = record.get('quality') or {}
+
+    log_decision(assessment_id=record.get('assessment_id'), decision=decision,
+                 job_id=job_id, source='pipeline', tier=quality.get('tier'),
+                 score=quality.get('score'))
+
+    if decision == 'proceed':
+        job.result_json = result
+        job.status = 'pending'
+        job.started_at = None
+        job.completed_at = None
+        db.session.commit()
+        return jsonify({
+            "job_id": job_id,
+            "status": "pending",
+            "decision": "proceed",
+            "quality_flag": "proceeded_low_quality",
+            "message": "Resuming extraction and matching despite low document "
+                       "quality. Results may contain inaccuracies.",
+        }), 202
+
+    quality_cache.discard(record.get('assessment_id'))
+    job.result_json = result
+    job.status = 'quality_rejected'
+    job.error_message = 'Vendor chose to upload a better invoice.'
+    job.completed_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify({
+        "job_id": job_id,
+        "status": "quality_rejected",
+        "decision": "retry",
+        "message": "Upload a new invoice to continue.",
+    }), 200
+
+
 @pipeline_bp.route('/api/pipeline/job/<int:job_id>/cancel', methods=['POST'])
 def cancel_job(job_id):
     """Cancel a specific running job by ID."""
@@ -354,22 +444,34 @@ def cancel_job(job_id):
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
-    if job.status not in ('pending', 'running'):
+    # 'quality_hold' is non-terminal: without it here a held job could never
+    # be cancelled, only left to expire.
+    if job.status not in ('pending', 'running', 'quality_hold'):
         return jsonify({
             "message": f"Job #{job_id} is already {job.status}, nothing to cancel.",
             "job_id": job_id,
             "status": job.status,
         }), 200
 
-    # If pending (not yet picked up by worker), mark cancelled directly
-    if job.status == 'pending':
+    if job.status == 'quality_hold':
+        from app.ocr import quality_cache
+        record = (job.result_json or {}).get('_hold') or {}
+        quality_cache.discard(record.get('assessment_id'))
+
+    # If pending or held (not currently executing), mark cancelled directly
+    if job.status in ('pending', 'quality_hold'):
+        was = job.status
         job.status = 'cancelled'
-        job.error_message = 'Cancelled by user before processing started.'
+        job.error_message = (
+            'Cancelled by user while awaiting a quality decision.'
+            if was == 'quality_hold'
+            else 'Cancelled by user before processing started.'
+        )
         from datetime import datetime, timezone
         job.completed_at = datetime.now(timezone.utc)
         db.session.commit()
         return jsonify({
-            "message": f"Job #{job_id} cancelled (was pending).",
+            "message": f"Job #{job_id} cancelled (was {was}).",
             "job_id": job_id,
             "status": "cancelled",
         }), 200
