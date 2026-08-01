@@ -1,0 +1,11 @@
+# Development-only dependencies. Deliberately NOT in requirements.txt so they
+# do not ship into the production image.
+#
+#   pip install -r backend/requirements-dev.txt
+#   pytest backend/test/ -v
+#
+# The quality-layer tests (test_quality.py, test_quality_cache.py) need only
+# opencv + numpy and run offline. The engine/route tests stub PaddleOCR, so
+# they need the app's own dependencies but never load an OCR model.
+-r requirements.txt
+pytest>=7.4
