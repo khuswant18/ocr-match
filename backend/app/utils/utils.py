@@ -55,27 +55,63 @@ def preprocess_for_ocr(img: np.ndarray) -> np.ndarray:
 
     return np.ascontiguousarray(rgb)
 
-def load_images_from_bytes(file_bytes: bytes):
+def _downscale_probe(img: np.ndarray, max_dim: int) -> np.ndarray:
+    """Downscale-only copy used for quality analysis.
+
+    A 300-DPI PDF page is 2480x3508x3 (~26 MB); at 1600px it is ~1.8 MB. The
+    quality metrics all work on a bounded probe anyway, so shrinking here
+    keeps peak memory sane on multi-page PDFs.
+    """
+    h, w = img.shape[:2]
+    if max_dim and max(h, w) > max_dim:
+        scale = max_dim / float(max(h, w))
+        return cv2.resize(img, None, fx=scale, fy=scale,
+                          interpolation=cv2.INTER_AREA)
+    return img
+
+
+def load_images_from_bytes(file_bytes: bytes, *, with_raw: bool = False,
+                           raw_max_dim: int = 1600):
     """
     Turn raw uploaded file bytes (PDF or image) into a flat list of
     preprocessed images (one per page), ready for OCR. Returns None if the
     bytes are empty or cannot be decoded.
+
+    with_raw=True additionally returns the RAW (un-CLAHE'd) page probes and
+    each page's true original (h, w), as `(processed, raw_probes, orig_shapes)`.
+    The quality layer needs the raw decode: `preprocess_for_ocr` applies CLAHE,
+    which roughly doubles Laplacian variance and would make every blurred scan
+    look sharp, while flattening the contrast and lighting signals entirely.
+
+    Both lists come from the SAME single decode/render - the PDF is rasterised
+    once and the enhancement applied to a copy. Returns (None, None, None) on
+    failure when with_raw is set.
     """
     if not file_bytes:
-        return None
+        return (None, None, None) if with_raw else None
 
     if _is_pdf(file_bytes):
         raw_images = pdf_to_images(file_bytes, dpi=300)
         if not raw_images:
-            return None
-        return [preprocess_for_ocr(img) for img in raw_images]
+            return (None, None, None) if with_raw else None
+        processed = [preprocess_for_ocr(img) for img in raw_images]
+        if not with_raw:
+            return processed
+        shapes = [(img.shape[0], img.shape[1]) for img in raw_images]
+        probes = [_downscale_probe(img, raw_max_dim) for img in raw_images]
+        return processed, probes, shapes
 
     npimg = np.frombuffer(file_bytes, np.uint8)
     img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
     if img is None:
-        return None
+        return (None, None, None) if with_raw else None
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    return [preprocess_for_ocr(img)]
+    processed = [preprocess_for_ocr(img)]
+    if not with_raw:
+        return processed
+    return (processed,
+            [_downscale_probe(img, raw_max_dim)],
+            [(img.shape[0], img.shape[1])])
 
 def load_images_from_request():
     """

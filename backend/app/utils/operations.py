@@ -1,34 +1,66 @@
 from datetime import datetime
 from app.models import db, Invoice, InvoiceItem
 
-def process_paddleocr_text(result):
+def extract_ocr_blocks(result):
     """
-    Process PaddleOCR result to extract text and calculate statistics.
-    """
-    all_blocks = []
-    total_score = 0
-    num_words = 0
+    Normalise a raw PaddleOCR document result into per-page block dicts.
 
-    for res in result:
+    Returns: list (one entry per page) of lists of
+        {'text', 'confidence', 'box': [[x, y] x4], 'y_center', 'x_left', 'height'}
+    with coordinates in ORIGINAL page pixels.
+
+    This is the single parser of PaddleOCR's nested (bbox, (text, confidence))
+    line format; `process_paddleocr_text` below builds on it, and the quality
+    layer consumes it directly. PaddleOCR reports a per-line confidence at
+    line[1][1] which the LayoutLM path used to discard entirely.
+    """
+    pages = []
+    for res in result or []:
         if not res:
+            pages.append([])
             continue
+        page = []
         for line in res:
             bbox = line[0]
             text = line[1][0]
             confidence = line[1][1]
+            if text is None:
+                continue
 
             y_center = (bbox[0][1] + bbox[2][1]) / 2.0
             x_left = bbox[0][0]
             height = abs(bbox[2][1] - bbox[0][1])
 
-            all_blocks.append({
+            page.append({
                 'text': text.strip(),
-                'confidence': confidence,
+                'confidence': float(confidence),
+                'box': [[float(p[0]), float(p[1])] for p in bbox],
                 'y_center': y_center,
                 'x_left': x_left,
                 'height': max(height, 1),
             })
-            total_score += confidence
+        pages.append(page)
+    return pages
+
+
+def process_paddleocr_text(result):
+    """
+    Process PaddleOCR result to extract text and calculate statistics.
+
+    Returns (average_confidence, reflowed_text). The 2-tuple shape is relied
+    on by callers including psr_service._run_ocr - do not change it.
+    """
+    all_blocks = []
+    total_score = 0
+    num_words = 0
+
+    for page in extract_ocr_blocks(result):
+        for block in page:
+            # Every detection counts toward the average, including blank ones,
+            # exactly as before this was refactored onto extract_ocr_blocks -
+            # average_confidence is a reported API field.
+            all_blocks.append(block)
+            total_score += block['confidence']
             num_words += 1
 
     if not all_blocks:
