@@ -14,21 +14,41 @@ import json
 import time
 import logging
 import threading
+from dataclasses import dataclass, field
 from paddleocr import PaddleOCR
 from PIL import Image as PILImage
 import numpy as np
 from app.parsers.llm_parser import parse_with_gemini, verify_and_fix
 from app.parsers.layoutlm_parser import extract_fields_multi_page as layoutlm_extract
-from app.utils.operations import add_invoice_to_db, check_if_invoice, process_paddleocr_text
+from app.utils.operations import (
+    add_invoice_to_db, check_if_invoice, process_paddleocr_text, extract_ocr_blocks,
+)
 from app.utils.utils import load_images_from_bytes, _is_pdf
 from app.models import db, Invoice
 from app.cancel_registry import check_cancelled, JobCancelledError
+from app.config import (
+    QUALITY_GATE_ENABLED, QUALITY_LOG_ONLY,
+    QUALITY_SCORE_HIGH, QUALITY_SCORE_LOW,
+    QUALITY_HOLD_TTL_SECONDS, QUALITY_HOLD_MAX_ENTRIES, QUALITY_HOLD_MAX_BYTES,
+    QUALITY_PROBE_MAX_DIM, QUALITY_MAX_PAGES,
+)
+from app.ocr import quality_cache
+from app.ocr.quality import assess_quality
+from app.ocr.quality_log import log_assessment, log_decision, log_event
 from werkzeug.utils import secure_filename
 
 logger = logging.getLogger(__name__)
 
-MIN_OCR_CONFIDENCE = 40.0
-MIN_OCR_WORDS = 10
+# The old MIN_OCR_CONFIDENCE / MIN_OCR_WORDS gate is gone. Mean PaddleOCR
+# confidence spans only 89.9-98.7 across the whole known-good corpus, so a
+# 40% floor could never fire; both checks are superseded by the multi-signal
+# assessment in app/ocr/quality.py (`ocr_confidence` and `completeness`).
+
+quality_cache.configure(
+    ttl_seconds=QUALITY_HOLD_TTL_SECONDS,
+    max_entries=QUALITY_HOLD_MAX_ENTRIES,
+    max_bytes=QUALITY_HOLD_MAX_BYTES,
+)
 
 UPLOAD_FOLDER = 'uploads/invoices/'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -65,6 +85,40 @@ class ExtractionError(Exception):
         self.message = message
         self.status_code = status_code
         self.payload = payload or {}
+
+
+class QualityHold(Exception):
+    """
+    The document scored below the low quality threshold, so the pipeline has
+    paused for a vendor decision ("Upload a Better Invoice" / "Proceed Anyway").
+
+    This is NOT a failure and must never be retried.
+
+    Deliberately subclasses Exception directly and carries NO `status_code`
+    attribute: match_worker._is_transient treats an ExtractionError with
+    status_code == 502 as retryable, and a retry here would re-run the very
+    OCR pass this hold exists to preserve. Do not "helpfully" give this class
+    a status_code, and do not reparent it under ExtractionError.
+    """
+    def __init__(self, assessment_id, report, message, warning=None,
+                 expires_at=None):
+        super().__init__(message)
+        self.assessment_id = assessment_id
+        self.report = report                # QualityReport.to_dict()
+        self.message = message
+        self.warning = warning or {}
+        self.expires_at = expires_at
+
+
+# Vendor-facing wording for the two non-clean outcomes.
+CAUTION_WARNING = (
+    "Invoice quality is borderline (score {score}). Extracted values may "
+    "contain inaccuracies - please review before approving."
+)
+PROCEEDED_WARNING = (
+    "Processed at your request despite low document quality (score {score}). "
+    "Results may contain inaccuracies due to poor document quality."
+)
 
 def _extract_words_and_boxes(all_results, images):
     """
@@ -287,10 +341,27 @@ def _postprocess_parsed_data(data: dict):
         _clean_financial_dupes(data['financials'])
 
 
-def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existing_path=None):
-    ocr_method = 'PaddleOCR+LayoutLMv3'
+@dataclass
+class _OcrStage:
+    """Everything produced by the expensive OCR pass.
 
-    images = load_images_from_bytes(file_bytes)
+    This is what the hold cache preserves, so a vendor who chooses "Proceed
+    Anyway" resumes from here rather than paying for OCR a second time.
+    """
+    images: list                 # preprocessed, OCR-ready pages
+    all_results: list            # raw PaddleOCR output
+    text: str
+    average_confidence: float
+    recognition_time: float
+    raw_probes: list = field(default_factory=list)   # RAW (un-CLAHE'd) probes
+    orig_shapes: list = field(default_factory=list)  # true (h, w) per page
+
+
+def _ocr_stage(file_bytes, job_id=None) -> _OcrStage:
+    """Decode the upload and run PaddleOCR over every page."""
+    images, raw_probes, orig_shapes = load_images_from_bytes(
+        file_bytes, with_raw=True, raw_max_dim=QUALITY_PROBE_MAX_DIM,
+    )
     if not images:
         raise ExtractionError('No valid image or PDF found in request.', status_code=400)
 
@@ -300,32 +371,171 @@ def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existin
     with _ocr_lock:
         all_results = _run_document_ocr(images, job_id=job_id)
     recognition_time = time.time() - start_time_recognition
-    print("\n" + "=" * 60)
-    print("[OCR] All results: ", all_results)
+
     if not all_results:
         raise ExtractionError('OCR failed to extract any text from the document.', status_code=400)
+
     average_confidence, text = process_paddleocr_text(all_results)
-    word_count = len(text.split())
 
-    # if average_confidence * 100 < MIN_OCR_CONFIDENCE:
-    #     raise ExtractionError(
-    #         f'OCR confidence too low ({average_confidence*100:.1f}%). Please upload a clearer scan.',
-    #         status_code=400,
-    #         payload={'average_confidence': average_confidence * 100, 'text': text},
-    #     )
+    return _OcrStage(
+        images=images, all_results=all_results, text=text,
+        average_confidence=average_confidence,
+        recognition_time=recognition_time,
+        raw_probes=raw_probes or [], orig_shapes=orig_shapes or [],
+    )
 
-    # if word_count < MIN_OCR_WORDS:
-    #     raise ExtractionError(
-    #         f'OCR extracted too few words ({word_count}). The document may be blank or unreadable.',
-    #         status_code=400,
-    #         payload={'average_confidence': average_confidence * 100, 'text': text},
-    #     )
 
-    # print("\n" + "=" * 60)
-    # print("[OCR] EXTRACTED TEXT:")
-    # print("=" * 60)
-    # print(text)
-    # print("=" * 60 + "\n")
+def _assess_stage(stage: _OcrStage, filename, job_id=None, source='sync'):
+    """Score the document. Returns (report_or_None, tier).
+
+    Never raises: a crash in the assessment layer must not fail an extraction
+    that would otherwise have succeeded.
+    """
+    try:
+        blocks = extract_ocr_blocks(stage.all_results)
+        report = assess_quality(
+            stage.raw_probes, blocks,
+            orig_shapes=stage.orig_shapes,
+            thresholds=(QUALITY_SCORE_HIGH, QUALITY_SCORE_LOW),
+            probe_max_dim=QUALITY_PROBE_MAX_DIM,
+            max_pages=QUALITY_MAX_PAGES,
+        )
+        return report, report.tier
+    except Exception as exc:
+        logger.exception("[QUALITY] Assessment failed; proceeding without a gate.")
+        log_event("assessment_failed", filename=filename, job_id=job_id,
+                  source=source, error=str(exc))
+        return None, "high"
+
+
+def extract_and_parse(file_bytes, filename, po_number=None, job_id=None,
+                      existing_path=None, *, quality_decision=None,
+                      source='sync'):
+    """Extract structured invoice data from an uploaded file.
+
+    quality_decision='proceed' bypasses the gate entirely (the vendor has
+    already been warned and chose to continue), and flags the result.
+
+    Raises QualityHold when the document scores below the low threshold.
+    """
+    stage = _ocr_stage(file_bytes, job_id=job_id)
+
+    quality_report = None
+    quality_flag = 'ok'
+
+    if quality_decision == 'proceed':
+        quality_flag = 'proceeded_low_quality'
+    elif QUALITY_GATE_ENABLED:
+        report, tier = _assess_stage(stage, filename, job_id=job_id, source=source)
+        quality_report = report.to_dict() if report is not None else None
+
+        if report is not None and tier == 'low' and not QUALITY_LOG_ONLY:
+            token = quality_cache.put(
+                file_bytes=file_bytes, all_results=stage.all_results,
+                text=stage.text, average_confidence=stage.average_confidence,
+                recognition_time=stage.recognition_time,
+                report=quality_report, filename=filename, po_number=po_number,
+                existing_path=existing_path, job_id=job_id, source=source,
+            )
+            if token is None:
+                # Too large to park. Never block a legitimate upload just
+                # because we could not cache it - fall through with caution.
+                log_event("hold_skipped_oversize", filename=filename,
+                          job_id=job_id, source=source, score=report.score)
+                quality_flag = 'caution'
+            else:
+                entry = quality_cache.peek(token)
+                log_assessment(report, filename=filename, job_id=job_id,
+                               assessment_id=token, source=source,
+                               ocr_ms=round(stage.recognition_time * 1000, 1),
+                               held=True, tier_action='hold')
+                raise QualityHold(
+                    token, quality_report,
+                    f"Invoice quality is too low for reliable extraction "
+                    f"(score {report.score}).",
+                    warning=report.vendor_warning(),
+                    expires_at=entry.expires_at if entry else None,
+                )
+        else:
+            quality_flag = 'ok' if tier == 'high' else 'caution'
+            if QUALITY_LOG_ONLY:
+                quality_flag = 'ok'
+
+        if report is not None:
+            log_assessment(report, filename=filename, job_id=job_id,
+                           source=source,
+                           ocr_ms=round(stage.recognition_time * 1000, 1),
+                           held=False, tier_action=quality_flag)
+
+    return _parse_stage(stage, filename, po_number=po_number, job_id=job_id,
+                        quality=quality_report, quality_flag=quality_flag,
+                        file_bytes=file_bytes, existing_path=existing_path)
+
+
+def resume_extraction(assessment_id, job_id=None):
+    """Continue a held extraction after the vendor chose "Proceed Anyway".
+
+    Replays the cached OCR result instead of re-running PaddleOCR.
+    """
+    entry = quality_cache.pop(assessment_id)
+    if entry is None:
+        raise ExtractionError(
+            'This quality assessment has expired. Please upload the invoice again.',
+            status_code=410, payload={'code': 'ASSESSMENT_EXPIRED'},
+        )
+
+    report = entry.report or {}
+    log_decision(assessment_id=assessment_id, decision='proceed',
+                 job_id=job_id if job_id is not None else entry.job_id,
+                 source=entry.source, tier=report.get('tier'),
+                 score=report.get('score'), held_seconds=entry.age_seconds())
+
+    # Deterministic re-derivation: load_images_from_bytes returns byte-identical
+    # images, which matters because _extract_words_and_boxes normalises the
+    # LayoutLM boxes against img.shape.
+    images = load_images_from_bytes(entry.file_bytes)
+    if not images:
+        raise ExtractionError('Stored document could not be re-read.', status_code=400)
+
+    stage = _OcrStage(
+        images=images, all_results=entry.all_results, text=entry.text,
+        average_confidence=entry.average_confidence,
+        recognition_time=entry.recognition_time,
+    )
+    return _parse_stage(stage, entry.filename, po_number=entry.po_number,
+                        job_id=job_id if job_id is not None else entry.job_id,
+                        quality=report, quality_flag='proceeded_low_quality',
+                        file_bytes=entry.file_bytes,
+                        existing_path=entry.existing_path)
+
+
+def discard_hold(assessment_id, job_id=None):
+    """Vendor chose "Upload a Better Invoice"; drop the cached OCR result."""
+    entry = quality_cache.peek(assessment_id)
+    report = (entry.report if entry else {}) or {}
+    log_decision(assessment_id=assessment_id, decision='retry',
+                 job_id=job_id if job_id is not None else (entry.job_id if entry else None),
+                 source=entry.source if entry else 'sync',
+                 tier=report.get('tier'), score=report.get('score'),
+                 held_seconds=entry.age_seconds() if entry else None)
+    return quality_cache.discard(assessment_id)
+
+
+def _parse_stage(stage: _OcrStage, filename, po_number=None, job_id=None,
+                 quality=None, quality_flag='ok', file_bytes=None,
+                 existing_path=None):
+    """LayoutLMv3 inference, post-processing and result assembly.
+
+    `file_bytes` / `existing_path` are carried through only for the
+    (currently commented out) invoice-persistence block further down.
+    """
+    ocr_method = 'PaddleOCR+LayoutLMv3'
+
+    images = stage.images
+    all_results = stage.all_results
+    text = stage.text
+    average_confidence = stage.average_confidence
+    recognition_time = stage.recognition_time
 
     check_cancelled(job_id)
 
@@ -412,9 +622,19 @@ def extract_and_parse(file_bytes, filename, po_number=None, job_id=None, existin
     meta = {
         'recognition_time': recognition_time,
         'parsing_time': parsing_time,
-        # 'parsing_time': parsing_time,
         'average_confidence': average_confidence * 100,
+        'quality': quality,
+        'quality_flag': quality_flag,
     }
+
+    # Reuse the existing meta['warning'] channel: ocr_routes already forwards
+    # it into the response, so the caution flag reaches the client with no
+    # route change on the success path.
+    if quality_flag in ('caution', 'proceeded_low_quality'):
+        score = (quality or {}).get('score', 'n/a')
+        template = (CAUTION_WARNING if quality_flag == 'caution'
+                    else PROCEEDED_WARNING)
+        meta['warning'] = template.format(score=score)
 
     invoice_id = None
     # if isinstance(parsed_data, dict) and check_if_invoice(parsed_data):
