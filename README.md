@@ -44,7 +44,7 @@ OCR-Match automates the accounts-payable verification workflow:
 | PO auto-correction | Validates extracted PO against `po_headers` DB table, auto-corrects OCR digit misreads (edit distance ≤2) |
 | Filename PO fallback | If filename contains a PO number, it overrides OCR errors |
 | Duplicate detection | Prevents the same invoice_number from being saved twice |
-| Invoice quality assessment | Scores every upload 0-100 on resolution, blur, skew, cropping, lighting, contrast, noise, readability, completeness and OCR confidence. ≥85 proceeds, 70-84 proceeds with a caution flag, <70 pauses and asks the vendor to re-upload or proceed anyway |
+| Invoice quality assessment | Scores every upload 0-100 on resolution, blur, skew, cropping, lighting, contrast, noise, occlusion, readability, visible text ratio, completeness and OCR confidence. ≥85 proceeds, 70-84 proceeds with a caution flag, <70 pauses and asks the vendor to re-upload or proceed anyway |
 | Three-way match engine | PO qty/price × GRN received qty × Invoice billed qty/price |
 | 4-pass product matching | Qdrant vector search → fuzzy string → unique price → price+description combo |
 | Conversion factor support | Handles case↔unit conversion (e.g. 5 cases × CF 10 = 50 cans) |
