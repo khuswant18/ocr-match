@@ -44,7 +44,7 @@ OCR-Match automates the accounts-payable verification workflow:
 | PO auto-correction | Validates extracted PO against `po_headers` DB table, auto-corrects OCR digit misreads (edit distance ≤2) |
 | Filename PO fallback | If filename contains a PO number, it overrides OCR errors |
 | Duplicate detection | Prevents the same invoice_number from being saved twice |
-| OCR quality gate | Rejects scans below 40% confidence or with <10 words extracted |
+| Invoice quality assessment | Scores every upload 0-100 on resolution, blur, skew, cropping, lighting, contrast, noise, readability, completeness and OCR confidence. ≥85 proceeds, 70-84 proceeds with a caution flag, <70 pauses and asks the vendor to re-upload or proceed anyway |
 | Three-way match engine | PO qty/price × GRN received qty × Invoice billed qty/price |
 | 4-pass product matching | Qdrant vector search → fuzzy string → unique price → price+description combo |
 | Conversion factor support | Handles case↔unit conversion (e.g. 5 cases × CF 10 = 50 cans) |
@@ -108,7 +108,11 @@ PaddleOCR × 2 passes
   → Layout reconstruction: group by Y-coordinate, sort by X, tab-separate
      │
      ▼
-Quality Gate: reject if confidence < 40% or words < 10
+Invoice Quality Assessment (app/ocr/quality.py) → score 0-100
+  → ≥85 proceed · 70-84 proceed with caution flag
+  → <70 pause: cache the OCR result and return status "quality_hold"
+       so the vendor can "Upload a Better Invoice" or "Proceed Anyway"
+       (proceeding resumes from the cache — no second OCR pass)
      │
      ▼
 Groq LLM (llama-3.3-70b-versatile, JSON mode)
