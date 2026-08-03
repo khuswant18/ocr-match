@@ -3,8 +3,9 @@ Invoice Quality Assessment Layer.
 
 Scores an uploaded document 0-100 on how likely it is that field extraction
 will be accurate, from image-appearance signals (resolution, blur, skew,
-cropping, lighting, contrast, noise) and OCR-structure signals (text
-readability, document completeness, recognition confidence).
+cropping, lighting, contrast, noise, occlusion) and OCR-structure signals
+(text readability, visible text ratio, document completeness, recognition
+confidence).
 
 The score drives a three-tier decision made by the caller:
 
@@ -60,16 +61,18 @@ VERSION = "1.0"
 # --------------------------------------------------------------------------
 
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "blur":           0.20,   # the single biggest killer of field extraction
-    "resolution":     0.12,
-    "cropping":       0.12,
-    "readability":    0.10,
-    "skew":           0.10,
-    "lighting":       0.08,
-    "contrast":       0.08,
-    "completeness":   0.08,
-    "noise":          0.07,
-    "ocr_confidence": 0.05,   # deliberately smallest - see module docstring
+    "blur":               0.17,   # biggest killer of field extraction
+    "occlusion":          0.12,   # data hidden outright cannot be recovered
+    "resolution":         0.10,
+    "cropping":           0.09,
+    "readability":        0.09,
+    "visible_text_ratio": 0.09,
+    "skew":               0.08,
+    "completeness":       0.07,
+    "lighting":           0.06,
+    "contrast":           0.06,
+    "noise":              0.04,
+    "ocr_confidence":     0.03,   # deliberately smallest - see module docstring
 }
 
 # Dimensions whose collapse destroys extraction rather than merely degrading
@@ -80,7 +83,8 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 # on the 100-invoice known-good corpus its detector trips a single edge on 28
 # documents (letterheads, margin rules, scanner borders). A metric that noisy
 # must not be able to cap a document's score by itself. See _m_cropping.
-CRITICAL_METRICS = ("blur", "readability", "completeness")
+CRITICAL_METRICS = ("blur", "readability", "completeness",
+                    "occlusion", "visible_text_ratio")
 
 # A metric at 75 imposes no cap (75+25 = 100); a metric at 20 caps the
 # document at 45, which forces a hold under the default low threshold of 70.
@@ -99,6 +103,8 @@ ISSUE_SEVERITY: dict[str, str] = {
     "CROPPED":             "critical",
     "INCOMPLETE_DOCUMENT": "critical",
     "ROTATED":             "critical",
+    "OCCLUDED":            "critical",
+    "LOW_VISIBLE_TEXT":    "critical",
     "LOW_RESOLUTION":      "major",
     "SKEWED":              "major",
     "SMALL_TEXT":          "major",
@@ -127,6 +133,16 @@ ISSUE_MESSAGES: dict[str, tuple[str, str]] = {
     "ROTATED": (
         "The invoice appears to be rotated sideways or upside down.",
         "Rotate the invoice upright before uploading it again.",
+    ),
+    "OCCLUDED": (
+        "Large parts of the invoice are covered by dark markings and cannot "
+        "be read.",
+        "Upload a clean copy with no redaction, marker pen, stickers or "
+        "shadows covering the printed text.",
+    ),
+    "LOW_VISIBLE_TEXT": (
+        "Only a small fraction of the invoice text is readable.",
+        "Upload a complete, unobstructed copy of the invoice.",
     ),
     "LOW_RESOLUTION": (
         "The invoice image is too low-resolution for reliable reading.",
@@ -704,6 +720,117 @@ def _m_noise(p: _Probe) -> tuple[float, dict]:
     return score, {"sigma_paper": sigma, "speckle_ratio": speckle_ratio}
 
 
+def _m_occlusion(p: _Probe) -> tuple[float, dict]:
+    """Solid dark regions hiding the document: redaction bars, marker pen,
+    stickers, heavy shadow, a thumb over the page.
+
+    Brightness alone cannot separate a marker stroke from printed ink - both
+    are near-black. SHAPE separates them. Printed text is thin (~2px strokes
+    at probe scale) and table rules are thinner still, so a morphological
+    opening with a kernel several times the stroke width erases all legitimate
+    text while solid fills survive intact.
+
+    This matters because occlusion is invisible to every other signal here: a
+    blacked-out region produces NO OCR detections rather than low-confidence
+    ones, so mean confidence stays high and only the absence of text hints at
+    it. See _m_ocr_confidence, which is explicitly capped on this metric.
+    """
+    h, w = p.gray.shape[:2]
+    page_area = float(h * w) or 1.0
+
+    # Distinctly darker than the Otsu split, i.e. solid black rather than
+    # ordinary ink on paper.
+    dark_cut = max(35.0, min(p.otsu_t * 0.55, p.ink_mean + 20.0))
+    dark = (p.gray <= dark_cut).astype(np.uint8)
+
+    # Kernel comfortably wider than any printed stroke or rule.
+    k = max(7, int(0.006 * max(h, w)) | 1)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    solid = cv2.morphologyEx(dark, cv2.MORPH_OPEN, kernel)
+
+    occluded_ratio = float(solid.mean())
+
+    largest_ratio = 0.0
+    blob_count = 0
+    if occluded_ratio > 0:
+        n_labels, _, stats, _ = cv2.connectedComponentsWithStats(solid, 8)
+        areas = [stats[i, cv2.CC_STAT_AREA] for i in range(1, n_labels)]
+        min_blob = 0.002 * page_area          # ignore specks
+        big = [a for a in areas if a >= min_blob]
+        blob_count = len(big)
+        if big:
+            largest_ratio = float(max(big) / page_area)
+
+    score = _piecewise(occluded_ratio,
+                       [(0.01, 100), (0.03, 88), (0.08, 60),
+                        (0.18, 25), (0.35, 0)])
+    # A single huge blob is worse than the same area scattered as logos.
+    if largest_ratio > 0.10:
+        score = min(score, _piecewise(largest_ratio,
+                                      [(0.10, 55), (0.25, 15), (0.40, 0)]))
+
+    return score, {
+        "occluded_ratio": occluded_ratio,
+        "largest_blob_ratio": largest_ratio,
+        "blob_count": blob_count,
+        "dark_cut": dark_cut,
+    }, solid.astype(bool)
+
+
+def _m_visible_text(p: _Probe, blocks: list[dict] | None,
+                    occluded_ratio: float,
+                    occlusion_mask: np.ndarray | None = None
+                    ) -> tuple[float, dict, bool]:
+    """How much of the document's content area is actually readable text
+    rather than hidden behind something.
+
+    Expressed as text / (text + occluded), so a clean invoice sits near 1.0
+    regardless of how text-dense it happens to be, while a half-redacted one
+    collapses even though its surviving text is perfectly sharp.
+
+    Both terms must be measured in the same units. Raw ink pixels are thin
+    strokes covering ~3% of a clean page, whereas occlusion is solid area, so
+    comparing them directly makes any redaction look total. With OCR blocks
+    the text term is block-box area (which includes the whitespace inside each
+    box); without them the surviving ink is dilated into line-sized regions to
+    approximate the same thing.
+    """
+    h, w = p.gray.shape[:2]
+    page_area = float(h * w) or 1.0
+    estimated = False
+
+    if blocks:
+        text_area = 0.0
+        for b in blocks:
+            box = b.get("_probe_box")
+            if not box:
+                continue
+            text_area += max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
+        text_frac = text_area / page_area
+    else:
+        surviving = p.ink_mask
+        if occlusion_mask is not None:
+            surviving = np.logical_and(surviving, ~occlusion_mask)
+        kx = max(9, int(0.012 * w) | 1)
+        ky = max(3, int(0.004 * h) | 1)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kx, ky))
+        merged = cv2.morphologyEx(surviving.astype(np.uint8), cv2.MORPH_CLOSE,
+                                  kernel)
+        text_frac = float(merged.mean())
+        estimated = True
+
+    denom = text_frac + occluded_ratio
+    ratio = 1.0 if denom <= 1e-6 else float(text_frac / denom)
+
+    score = _piecewise(ratio, [(0.25, 0), (0.50, 40), (0.70, 70),
+                               (0.90, 100)])
+    return score, {
+        "visible_text_ratio": ratio,
+        "text_area_frac": text_frac,
+        "occluded_ratio": occluded_ratio,
+    }, estimated
+
+
 def _m_readability(p: _Probe, blocks: list[dict] | None) -> tuple[float, dict, bool]:
     """How legible the detected text is: how tall it is, and how much of it
     the recogniser was unsure about."""
@@ -792,10 +919,20 @@ def _m_completeness(p: _Probe, blocks: list[dict] | None) -> tuple[float, dict, 
     }, estimated
 
 
-def _m_ocr_confidence(blocks: list[dict] | None) -> tuple[float, dict, bool]:
-    """See the module docstring for why this is weighted 0.05."""
+def _m_ocr_confidence(blocks: list[dict] | None,
+                      occluded_ratio: float = 0.0) -> tuple[float, dict, bool]:
+    """See the module docstring for why this is weighted lowest.
+
+    Capped by occlusion on purpose. OCR does not return a low-confidence
+    reading for text hidden under a redaction bar - it returns NOTHING, so the
+    mean over surviving detections stays high and would otherwise vouch for a
+    document whose covered half was never read at all. The cap makes this
+    metric report on the document rather than on the crops OCR happened to
+    find.
+    """
     if not blocks:
-        return 70.0, {"mean_conf": None, "low_conf_ratio": None}, True
+        return 70.0, {"mean_conf": None, "low_conf_ratio": None,
+                      "occluded_ratio": occluded_ratio}, True
     confs = [float(b.get("confidence", 1.0)) for b in blocks]
     mean_conf = float(np.mean(confs))
     low_conf_ratio = float(sum(1 for c in confs if c < 0.80) / len(confs))
@@ -803,7 +940,12 @@ def _m_ocr_confidence(blocks: list[dict] | None) -> tuple[float, dict, bool]:
     # 40-100 rather than collapsing into a single point near the top.
     score = _piecewise(mean_conf,
                        [(0.85, 0), (0.90, 40), (0.94, 70), (0.97, 95), (0.985, 100)])
-    return score, {"mean_conf": mean_conf, "low_conf_ratio": low_conf_ratio}, False
+    if occluded_ratio > 0.03:
+        score = min(score, _piecewise(occluded_ratio,
+                                      [(0.03, 100), (0.10, 55), (0.25, 15),
+                                       (0.40, 0)]))
+    return score, {"mean_conf": mean_conf, "low_conf_ratio": low_conf_ratio,
+                   "occluded_ratio": occluded_ratio}, False
 
 
 # --------------------------------------------------------------------------
@@ -829,6 +971,13 @@ def _detect_issues(scores: dict[str, float],
         add("INCOMPLETE_DOCUMENT", "completeness",
             raws["completeness"]["vertical_coverage"], 40.0,
             raws["completeness"]["coverage_score"])
+    if scores["occlusion"] < 60:
+        add("OCCLUDED", "occlusion",
+            raws["occlusion"]["occluded_ratio"], 60.0, scores["occlusion"])
+    if scores["visible_text_ratio"] < 55:
+        add("LOW_VISIBLE_TEXT", "visible_text_ratio",
+            raws["visible_text_ratio"]["visible_text_ratio"], 55.0,
+            scores["visible_text_ratio"])
     if scores["resolution"] < 50:
         add("LOW_RESOLUTION", "resolution",
             raws["resolution"]["short_side_px"], 50.0, scores["resolution"])
@@ -938,13 +1087,18 @@ def assess_page(raw_image: np.ndarray,
     scores["lighting"], raws["lighting"] = _m_lighting(probe)
     scores["contrast"], raws["contrast"] = _m_contrast(probe)
     scores["noise"], raws["noise"] = _m_noise(probe)
+    scores["occlusion"], raws["occlusion"], occlusion_mask = _m_occlusion(probe)
+    occluded_ratio = raws["occlusion"]["occluded_ratio"]
+    scores["visible_text_ratio"], raws["visible_text_ratio"], \
+        estimated["visible_text_ratio"] = _m_visible_text(
+            probe, pblocks, occluded_ratio, occlusion_mask)
     scores["skew"], raws["skew"], estimated["skew"] = _m_skew(probe, pblocks)
     scores["readability"], raws["readability"], estimated["readability"] = \
         _m_readability(probe, pblocks)
     scores["completeness"], raws["completeness"], estimated["completeness"] = \
         _m_completeness(probe, pblocks)
     scores["ocr_confidence"], raws["ocr_confidence"], estimated["ocr_confidence"] = \
-        _m_ocr_confidence(pblocks)
+        _m_ocr_confidence(pblocks, occluded_ratio)
 
     page_score = aggregate(scores, w)
     issues = _detect_issues(scores, raws)

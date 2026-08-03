@@ -268,6 +268,97 @@ def test_cropping_no_false_positive_on_header_bar(clean):
     assert "CROPPED" not in _codes(img)
 
 
+# --------------------------------------------------------------------------
+# Occlusion and visible text
+# --------------------------------------------------------------------------
+
+def redact(img, boxes):
+    """Paint solid black rectangles, given as (y0, y1, x0, x1) page fractions."""
+    out = img.copy()
+    h, w = img.shape[:2]
+    for y0, y1, x0, x1 in boxes:
+        out[int(h * y0):int(h * y1), int(w * x0):int(w * x1)] = 0
+    return out
+
+
+def test_clean_invoice_reads_as_unoccluded(clean):
+    page = assess_page(clean)
+    assert page["metrics"]["occlusion"].score == 100
+    assert page["metrics"]["occlusion"].raw["occluded_ratio"] < 0.01
+    assert "OCCLUDED" not in _codes(clean)
+
+
+def test_printed_text_is_not_mistaken_for_occlusion(clean):
+    """Marker pen and printed ink are equally dark; only shape separates them.
+    Across the 100-invoice corpus this metric scores exactly 100 on every
+    file, barcodes and solid logos included."""
+    assert assess_page(clean)["metrics"]["occlusion"].raw["occluded_ratio"] < 0.01
+
+
+def test_occlusion_is_monotonic(clean):
+    one = _metric(redact(clean, [(.30, .36, .10, .70)]), "occlusion")
+    three = _metric(redact(clean, [(.30, .36, .10, .70), (.45, .51, .10, .70),
+                                   (.60, .66, .10, .70)]), "occlusion")
+    half = _metric(redact(clean, [(.45, 1.0, 0.0, 1.0)]), "occlusion")
+    assert 100 >= one > three > half
+    assert half == 0
+
+
+def test_heavy_redaction_is_flagged(clean):
+    codes = _codes(redact(clean, [(.30, .36, .10, .70), (.45, .51, .10, .70),
+                                  (.60, .66, .10, .70)]))
+    assert "OCCLUDED" in codes
+    assert "LOW_VISIBLE_TEXT" in codes
+
+
+def test_redaction_forces_a_hold(clean):
+    """Occlusion and visible_text_ratio are both critical metrics, so a
+    redacted invoice must land in the low tier rather than being averaged
+    back up by nine healthy dimensions."""
+    report = assess_quality([redact(clean, [(.45, 1.0, 0.0, 1.0)])])
+    assert report.tier == "low"
+    assert "OCCLUDED" in report.issue_codes
+
+
+def test_visible_text_ratio_falls_as_coverage_grows(clean):
+    base = _metric(clean, "visible_text_ratio")
+    part = _metric(redact(clean, [(.30, .45, .05, .95)]), "visible_text_ratio")
+    most = _metric(redact(clean, [(.30, .65, .05, .95)]), "visible_text_ratio")
+    assert base > part > most
+
+
+def test_ocr_confidence_is_capped_by_occlusion(clean):
+    """The blind spot this closes: OCR returns nothing at all for text hidden
+    under a redaction bar -- not a low-confidence reading -- so the mean over
+    surviving detections would otherwise vouch for a document whose covered
+    quarter was never read.
+
+    Both pages are given the SAME set of high-confidence blocks, so mean_conf
+    is identical and only the occlusion cap can move the score.
+    """
+    confident = _grid_blocks(conf=0.98)
+    open_page = assess_page(clean, confident)
+    covered = assess_page(redact(clean, [(.30, .55, .05, .95)]), confident)
+
+    assert open_page["metrics"]["ocr_confidence"].score >= 90
+    assert covered["metrics"]["ocr_confidence"].score < 30
+    assert covered["metrics"]["ocr_confidence"].raw["mean_conf"] == pytest.approx(
+        open_page["metrics"]["ocr_confidence"].raw["mean_conf"])
+
+
+def test_almost_entirely_covered_page_is_degenerate(clean):
+    """Past ~60% ink coverage the page short-circuits to zero rather than
+    being scored metric by metric."""
+    report = assess_quality([redact(clean, [(.35, 1.0, 0.0, 1.0)])])
+    assert report.score == 0.0
+    assert report.tier == "low"
+
+
+def test_occlusion_and_visible_text_are_critical():
+    assert "occlusion" in CRITICAL_METRICS
+    assert "visible_text_ratio" in CRITICAL_METRICS
+
+
 def test_blank_page_is_degenerate(clean):
     blank = np.full_like(clean, 255)
     report = assess_quality([blank])
